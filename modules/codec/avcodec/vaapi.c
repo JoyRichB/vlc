@@ -54,7 +54,7 @@ struct vlc_va_sys_t
     struct vaapi_context hw_ctx;
 };
 
-static int GetVaProfile(AVCodecContext *ctx, const es_format_t *fmt,
+static int GetVaProfile(const AVCodecContext *ctx, const es_format_t *fmt,
                         VAProfile *va_profile, int *vlc_chroma,
                         unsigned *pic_count)
 {
@@ -132,12 +132,10 @@ static int Get(vlc_va_t *va, picture_t *pic, uint8_t **data)
     return VLC_SUCCESS;
 }
 
-static void Delete(vlc_va_t *va, void **hwctx)
+static void Delete(vlc_va_t *va)
 {
     vlc_va_sys_t *sys = va->sys;
     vlc_object_t *o = VLC_OBJECT(va);
-
-    (void) hwctx;
 
     vlc_vaapi_DestroyContext(o, sys->hw_ctx.display, sys->hw_ctx.context_id);
     vlc_vaapi_DestroyConfig(o, sys->hw_ctx.display, sys->hw_ctx.config_id);

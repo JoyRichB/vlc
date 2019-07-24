@@ -191,12 +191,6 @@ CFLAGS := $(CFLAGS) -gcodeview
 CXXFLAGS := $(CXXFLAGS) -gcodeview
 endif
 
-ifndef WITH_OPTIMIZATION
-DBGOPTIMFLAGS = -g -O0
-else
-DBGOPTIMFLAGS = -g -O2
-endif
-
 # Do not export those! Use HOSTVARS.
 
 # Do the FPU detection, after we have figured out our compilers and flags.
@@ -311,32 +305,42 @@ HOSTCONF += --with-pic
 PIC := -fPIC
 endif
 
+# For cross-compilation with meson, do not set compiler and flags
+# in HOSTVARS as meson will always use them for the BUILD machine compiler!
+MESON_HOST_FLAGS := \
+	CPPFLAGS="$(CPPFLAGS)" \
+	CFLAGS="$(CFLAGS)" \
+	CXXFLAGS="$(CXXFLAGS)" \
+	LDFLAGS="$(LDFLAGS)"
+ifdef HAVE_CROSS_COMPILE
+HOSTVARS_MESON := PATH="$(PREFIX)/bin:$(PATH)"
+else
+HOSTVARS_MESON := $(HOSTTOOLS) $(MESON_HOST_FLAGS)
+endif
+
+# Add these flags after Meson consumed the CFLAGS/CXXFLAGS
+ifndef WITH_OPTIMIZATION
+CFLAGS := $(CFLAGS) -g -O0
+CXXFLAGS := $(CXXFLAGS) -g -O0
+else
+CFLAGS := $(CFLAGS) -g -O2
+CXXFLAGS := $(CXXFLAGS) -g -O2
+endif
+
 HOSTTOOLS := \
 	CC="$(CC)" CXX="$(CXX)" LD="$(LD)" \
 	AR="$(AR)" CCAS="$(CCAS)" RANLIB="$(RANLIB)" STRIP="$(STRIP)" \
 	PATH="$(PREFIX)/bin:$(PATH)"
 HOSTVARS := $(HOSTTOOLS) \
 	CPPFLAGS="$(CPPFLAGS)" \
-	CFLAGS="$(CFLAGS) $(DBGOPTIMFLAGS)" \
-	CXXFLAGS="$(CXXFLAGS) $(DBGOPTIMFLAGS)" \
-	LDFLAGS="$(LDFLAGS)"
-HOSTVARS_PIC := $(HOSTTOOLS) \
-	CPPFLAGS="$(CPPFLAGS) $(PIC)" \
-	CFLAGS="$(CFLAGS) $(DBGOPTIMFLAGS) $(PIC)" \
-	CXXFLAGS="$(CXXFLAGS) $(DBGOPTIMFLAGS) $(PIC)" \
-	LDFLAGS="$(LDFLAGS)"
-
-# For cross-compilation with meson, do not set compiler and flags
-# in HOSTVARS as meson will always use them for the BUILD machine compiler!
-ifdef HAVE_CROSS_COMPILE
-HOSTVARS_MESON := PATH="$(PREFIX)/bin:$(PATH)"
-else
-HOSTVARS_MESON := $(HOSTTOOLS) \
-	CPPFLAGS="$(CPPFLAGS)" \
 	CFLAGS="$(CFLAGS)" \
 	CXXFLAGS="$(CXXFLAGS)" \
 	LDFLAGS="$(LDFLAGS)"
-endif
+HOSTVARS_PIC := $(HOSTTOOLS) \
+	CPPFLAGS="$(CPPFLAGS) $(PIC)" \
+	CFLAGS="$(CFLAGS) $(PIC)" \
+	CXXFLAGS="$(CXXFLAGS) $(PIC)" \
+	LDFLAGS="$(LDFLAGS)"
 
 download_git = \
 	rm -Rf -- "$(@:.tar.xz=)" && \
@@ -599,16 +603,14 @@ endif
 
 crossfile.meson: $(SRC)/gen-meson-crossfile.py
 	$(HOSTTOOLS) \
-	CPPFLAGS="$(CPPFLAGS)" \
-	CFLAGS="$(CFLAGS)" \
-	CXXFLAGS="$(CXXFLAGS)" \
-	LDFLAGS="$(LDFLAGS)" \
+	$(MESON_HOST_FLAGS) \
 	WINDRES="$(WINDRES)" \
 	PKG_CONFIG="$(PKG_CONFIG)" \
 	HOST_SYSTEM="$(MESON_SYSTEM_NAME)" \
 	HOST_ARCH="$(subst i386,x86,$(ARCH))" \
 	HOST="$(HOST)" \
 	$(SRC)/gen-meson-crossfile.py $@
+	cat $@
 
 # Default pattern rules
 .sum-%: $(SRC)/%/SHA512SUMS
