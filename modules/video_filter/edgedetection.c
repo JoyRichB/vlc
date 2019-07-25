@@ -79,7 +79,7 @@ vlc_module_end ()
 
 static const struct filter_video_callbacks filter_video_edge_cbs =
 {
-    .buffer_new = new_frame,
+    new_frame,
 };
 
 /*****************************************************************************
@@ -140,9 +140,12 @@ static void Close( vlc_object_t *p_this )
 /* *****************************************************************************
  * Allocates a new buffer for the filter chain.
  ******************************************************************************/
-static picture_t *new_frame( filter_t *p_filter)
+static picture_t *new_frame( filter_t *p_filter )
 {
-    return filter_NewPicture( p_filter->owner.sys );
+    filter_t *p_this = p_filter->owner.sys;
+    // the last filter of the internal chain gets its pictures from the original
+    // filter source
+    return filter_NewPicture( p_this );
 }
 
 /******************************************************************************
