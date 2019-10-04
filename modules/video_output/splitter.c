@@ -220,14 +220,6 @@ static vout_window_t *video_splitter_CreateWindow(vlc_object_t *obj,
     return window;
 }
 
-static vout_display_t *vlc_vidsplit_CreateDisplay(vlc_object_t *obj,
-    const video_format_t *restrict source,
-    const vout_display_cfg_t *restrict cfg,
-    const char *name)
-{
-    return vout_display_New(obj, source, cfg, name, NULL);
-}
-
 static int vlc_vidsplit_Open(vout_display_t *vd,
                              const vout_display_cfg_t *cfg,
                              video_format_t *fmtp, vlc_video_context *ctx)
@@ -282,7 +274,6 @@ static int vlc_vidsplit_Open(vout_display_t *vd,
         };
         const char *modname = output->psz_module;
         struct vlc_vidsplit_part *part = &sys->parts[i];
-        vout_display_t *display;
 
         vlc_sem_init(&part->lock, 1);
         part->display = NULL;
@@ -298,8 +289,8 @@ static int vlc_vidsplit_Open(vout_display_t *vd,
         }
 
         vdcfg.window = part->window;
-        display = vlc_vidsplit_CreateDisplay(obj, &output->fmt, &vdcfg,
-                                             modname);
+        vout_display_t *display = vout_display_New(obj, &output->fmt, &vdcfg,
+                                                   modname, NULL);
         if (display == NULL) {
             vout_window_Disable(part->window);
             vout_window_Delete(part->window);
@@ -318,7 +309,8 @@ static int vlc_vidsplit_Open(vout_display_t *vd,
     vd->prepare = vlc_vidsplit_Prepare;
     vd->display = vlc_vidsplit_Display;
     vd->control = vlc_vidsplit_Control;
-    (void) cfg; (void) fmtp; (void) ctx;
+    vd->close = vlc_vidsplit_Close;
+    (void) fmtp; (void) ctx;
     return VLC_SUCCESS;
 }
 
@@ -327,7 +319,7 @@ vlc_module_begin()
     set_description(N_("Video splitter display plugin"))
     set_category(CAT_VIDEO)
     set_subcategory(SUBCAT_VIDEO_VOUT)
-    set_callbacks_display(vlc_vidsplit_Open, vlc_vidsplit_Close, 0)
+    set_callback_display(vlc_vidsplit_Open, 0)
     add_module("video-splitter", "video splitter", NULL,
                N_("Video splitter module"), N_("Video splitter module"))
 vlc_module_end()

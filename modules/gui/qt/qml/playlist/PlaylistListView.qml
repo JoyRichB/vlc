@@ -73,6 +73,18 @@ Utils.NavigableFocusScope {
         property int shiftIndex: -1
         property string mode: "normal"
 
+        Connections {
+            target: root.plmodel
+            onRowsInserted: {
+                if (view.currentIndex == -1)
+                    view.currentIndex = 0
+            }
+            onModelReset: {
+                if (view.currentIndex == -1 &&  root.plmodel.count > 0)
+                    view.currentIndex = 0
+            }
+        }
+
         footer: PLItemFooter {}
 
         delegate: PLItem {
@@ -146,29 +158,31 @@ Utils.NavigableFocusScope {
                 updateSelection(keyModifiers, oldIndex, newIndex);
             }
         }
+
         Keys.onDeletePressed: onDelete()
-        onActionRight: {
+
+        navigationParent: root
+        navigationRight: function() {
             overlay.state = "normal"
             overlay.focus = true
         }
-        onActionLeft: {
+        navigationLeft: function(index) {
             if (mode === "normal") {
-                root.actionLeft(index)
+                root.navigationLeft(index)
             } else {
                 overlay.state = "hidden"
                 mode = "normal"
             }
         }
-        onActionCancel: {
+        navigationCancel: function(index) {
             if (mode === "normal") {
-                root.actionCancel(index)
+                root.navigationCancel(index)
             } else {
                 overlay.state = "hidden"
                 mode = "normal"
             }
         }
-        onActionUp: root.actionUp(index)
-        onActionDown: root.actionDown(index)
+
         onActionAtIndex: {
             if (mode === "select")
                 root.plmodel.toggleSelected(index)

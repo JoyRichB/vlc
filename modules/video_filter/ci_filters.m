@@ -41,9 +41,6 @@
 #include <CoreImage/CIFilter.h>
 #include <CoreImage/CIVector.h>
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wpartial-availability"
-
 enum    filter_type
 {
     FILTER_NONE = -1,
@@ -540,16 +537,6 @@ Close_RemoveConverters(filter_t *filter, struct ci_filters_ctx *ctx)
     }
 }
 
-static picture_t *CVPX_to_CVPX_converter_BufferNew(filter_t *p_filter)
-{
-    return picture_NewFromFormat(&p_filter->fmt_out.video);
-}
-
-static const struct filter_video_callbacks image_filter_cbs =
-{
-    CVPX_to_CVPX_converter_BufferNew,
-};
-
 static filter_t *
 CVPX_to_CVPX_converter_Create(filter_t *filter, bool to_rgba)
 {
@@ -570,8 +557,6 @@ CVPX_to_CVPX_converter_Create(filter_t *filter, bool to_rgba)
         converter->fmt_in.video.i_chroma =
         converter->fmt_in.i_codec = VLC_CODEC_CVPX_BGRA;
     }
-
-    converter->owner.video = &image_filter_cbs;
 
     converter->p_module = module_need(converter, "video converter", NULL, false);
     if (!converter->p_module)
@@ -792,5 +777,3 @@ vlc_module_begin()
     add_shortcut("ci")
     add_string("ci-filter", "CIComicEffect", CI_CUSTOM_FILTER_TEXT, CI_CUSTOM_FILTER_LONGTEXT, true);
 vlc_module_end()
-
-#pragma clang diagnostic pop

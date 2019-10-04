@@ -30,6 +30,7 @@
 #include <QScopedPointer>
 #include <vlc_cxx_helpers.hpp>
 #include "util/input_models.hpp"
+#include "components/audio_device_model.hpp"
 #include "adapters/var_choice_model.hpp"
 #include "util/vlctick.hpp"
 
@@ -115,6 +116,7 @@ public:
     Q_PROPERTY(MediaStopAction mediaStopAction READ getMediaStopAction WRITE setMediaStopAction NOTIFY mediaStopActionChanged)
 
     Q_PROPERTY(VLCTick time READ getTime WRITE setTime NOTIFY timeChanged)
+    Q_PROPERTY(VLCTick remainingTime READ getRemainingTime NOTIFY remainingTimeChanged)
     Q_PROPERTY(float position READ getPosition WRITE setPosition NOTIFY positionChanged)
     Q_PROPERTY(VLCTick length READ getLength NOTIFY lengthChanged)
 
@@ -167,6 +169,7 @@ public:
     //aout properties
     Q_PROPERTY(float volume READ getVolume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(bool muted READ isMuted WRITE setMuted NOTIFY soundMuteChanged)
+    Q_PROPERTY(AudioDeviceModel* audioDevices READ getAudioDevices CONSTANT)
     Q_PROPERTY(VLCVarChoiceModel* audioStereoMode READ getAudioStereoMode CONSTANT)
     Q_PROPERTY(VLCVarChoiceModel* audioVisualization READ getAudioVisualizations CONSTANT)
     Q_PROPERTY(bool hasAudioVisualization READ hasAudioVisualization NOTIFY hasAudioVisualizationChanged)
@@ -244,6 +247,8 @@ public:
     void requestArtUpdate( input_item_t *p_item, bool b_forced );
     void setArt( input_item_t *p_item, QString fileUrl );
     static const QString decodeArtURL( input_item_t *p_item );
+    void updatePosition();
+    void updateTime(vlc_tick_t system_now, bool forceTimer);
 
     //getter/setters binded to a Q_PROPERTY
 public slots:
@@ -258,6 +263,7 @@ public slots:
     void setMediaStopAction(MediaStopAction );
     VLCTick getTime() const;
     void setTime(VLCTick);
+    VLCTick getRemainingTime() const;
     float getPosition() const;
     void setPosition(float);
     VLCTick getLength() const;
@@ -265,6 +271,8 @@ public slots:
     bool isRewindable() const;
     bool isPausable() const;
     bool isRateChangable() const;
+    void updatePositionFromTimer();
+    void updateTimeFromTimer();
 
     //tracks
     TrackListModel* getVideoTracks();
@@ -321,6 +329,7 @@ public slots:
     void setVolume( float volume );
     bool isMuted() const;
     void setMuted( bool muted );
+    AudioDeviceModel* getAudioDevices();
     VLCVarChoiceModel* getAudioStereoMode();
     VLCVarChoiceModel* getAudioVisualizations();
     bool hasAudioVisualization() const;
@@ -344,12 +353,11 @@ signals:
     void mediaStopActionChanged( MediaStopAction );
 
     void timeChanged( VLCTick );
+    void remainingTimeChanged( VLCTick );
     void positionChanged( float );
     void lengthChanged( VLCTick );
     void positionUpdated( float , VLCTick, int );
     void seekRequested( float pos ); //not exposed through Q_PROPERTY
-
-    void remainingTimeChanged( bool );  //FIXME
 
     void seekableChanged( bool );
     void rewindableChanged( bool );

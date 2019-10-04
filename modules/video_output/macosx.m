@@ -76,7 +76,7 @@ vlc_module_begin ()
     set_description (N_("Mac OS X OpenGL video output"))
     set_category (CAT_VIDEO)
     set_subcategory (SUBCAT_VIDEO_VOUT)
-    set_callbacks_display (Open, Close, 300)
+    set_callback_display(Open, 300)
     add_shortcut ("macosx", "vout_macosx")
     add_glopts ()
 vlc_module_end ()
@@ -243,6 +243,7 @@ static int Open (vout_display_t *vd, const vout_display_cfg_t *cfg,
         vd->prepare = PictureRender;
         vd->display = PictureDisplay;
         vd->control = Control;
+        vd->close   = Close;
 
         /* */
         // FIXME: this call leads to a fatal mutex locking error in vout_ChangeDisplaySize()
@@ -264,21 +265,8 @@ static void Close(vout_display_t *vd)
         [sys->glView setVoutDisplay:nil];
 
         var_Destroy (vd, "drawable-nsobject");
-        if ([(id)sys->container respondsToSelector:@selector(removeVoutSubview:)])
-        /* This will retain sys->glView */
-            [(id)sys->container performSelectorOnMainThread:@selector(removeVoutSubview:)
-                                                 withObject:sys->glView
-                                              waitUntilDone:NO];
-
-        /* release on main thread as explained in Open() */
-        [(id)sys->container performSelectorOnMainThread:@selector(release)
-                                             withObject:nil
-                                          waitUntilDone:NO];
-        [sys->glView performSelectorOnMainThread:@selector(removeFromSuperview)
-                                      withObject:nil
-                                   waitUntilDone:NO];
-
         var_Destroy(vlc_object_parent(vd), "macosx-glcontext");
+
         if (sys->vgl != NULL)
         {
             vlc_gl_MakeCurrent(sys->gl);
@@ -293,7 +281,19 @@ static void Close(vout_display_t *vd)
             vlc_object_delete(sys->gl);
         }
 
-        [sys->glView release];
+        VLCOpenGLVideoView *glView = sys->glView;
+        id<VLCVideoViewEmbedding> viewContainer = sys->container;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if ([viewContainer respondsToSelector:@selector(removeVoutSubview:)]) {
+                /* This will retain sys->glView */
+                [viewContainer removeVoutSubview:sys->glView];
+            }
+
+            /* release on main thread as explained in Open() */
+            [viewContainer release];
+            [glView removeFromSuperview];
+            [glView release];
+        });
 
         free (sys);
     }

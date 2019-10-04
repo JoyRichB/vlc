@@ -65,6 +65,7 @@ typedef struct
         nal_u1_t intra_constraint_flag;
         nal_u1_t one_picture_only_constraint_flag;
         nal_u1_t lower_bit_rate_constraint_flag;
+        nal_u1_t max_14bit_constraint_flag;
     } idc4to7;
     struct
     {
@@ -561,8 +562,8 @@ static bool hevc_parse_inner_profile_tier_level_rbsp( bs_t *p_bs,
     p_in->non_packed_constraint_flag = bs_read1( p_bs );
     p_in->frame_only_constraint_flag = bs_read1( p_bs );
 
-    if( ( p_in->profile_idc >= 4 && p_in->profile_idc <= 7 ) ||
-        ( p_in->profile_compatibility_flag & 0x0F000000 ) )
+    if( ( p_in->profile_idc >= 4 && p_in->profile_idc <= 10 ) ||
+        ( p_in->profile_compatibility_flag & 0x0F700000 ) )
     {
         p_in->idc4to7.max_12bit_constraint_flag = bs_read1( p_bs );
         p_in->idc4to7.max_10bit_constraint_flag = bs_read1( p_bs );
@@ -573,19 +574,34 @@ static bool hevc_parse_inner_profile_tier_level_rbsp( bs_t *p_bs,
         p_in->idc4to7.intra_constraint_flag = bs_read1( p_bs );
         p_in->idc4to7.one_picture_only_constraint_flag = bs_read1( p_bs );
         p_in->idc4to7.lower_bit_rate_constraint_flag = bs_read1( p_bs );
-        (void) bs_read( p_bs, 2 );
+        if( p_in->profile_idc == 5 ||
+            p_in->profile_idc == 9 ||
+            p_in->profile_idc == 10 ||
+           (p_in->profile_compatibility_flag & 0x08600000) )
+        {
+            p_in->idc4to7.max_14bit_constraint_flag = bs_read1( p_bs );
+            bs_skip( p_bs, 33 );
+        }
+        else bs_skip( p_bs, 34 );
+    }
+    else if( p_in->profile_idc == 2 ||
+            (p_in->profile_compatibility_flag & 0x20000000) )
+    {
+        bs_skip( p_bs, 7 );
+        p_in->idc4to7.one_picture_only_constraint_flag = bs_read1( p_bs );
+        bs_skip( p_bs, 35 );
     }
     else
     {
-        (void) bs_read( p_bs, 11 );
+        bs_read( p_bs, 43 );
     }
-    (void) bs_read( p_bs, 32 );
 
     if( ( p_in->profile_idc >= 1 && p_in->profile_idc <= 5 ) ||
-        ( p_in->profile_compatibility_flag & 0x7C000000 ) )
+         p_in->profile_idc == 9 ||
+        ( p_in->profile_compatibility_flag & 0x7C400000 ) )
         p_in->idc1to5.inbld_flag = bs_read1( p_bs );
     else
-        (void) bs_read1( p_bs );
+        bs_skip( p_bs, 1 );
 
     return true;
 }
@@ -1345,6 +1361,54 @@ bool hevc_get_profile_level(const es_format_t *p_fmt, uint8_t *pi_profile,
         *pi_nal_length_size = 1 + (p[21]&0x03);
 
     return true;
+}
+
+static unsigned hevc_make_indication( const hevc_inner_profile_tier_level_t *p )
+{
+    uint8_t flags[] =
+    {
+        p->idc4to7.max_14bit_constraint_flag,
+        p->idc4to7.max_12bit_constraint_flag,
+        p->idc4to7.max_10bit_constraint_flag,
+        p->idc4to7.max_8bit_constraint_flag,
+        p->idc4to7.max_422chroma_constraint_flag,
+        p->idc4to7.max_420chroma_constraint_flag,
+        p->idc4to7.max_monochrome_constraint_flag,
+        p->idc4to7.intra_constraint_flag,
+        p->idc4to7.one_picture_only_constraint_flag,
+        p->idc4to7.lower_bit_rate_constraint_flag,
+    };
+    unsigned indication = 0;
+    for( size_t i=0; i<ARRAY_SIZE(flags); i++ )
+    {
+        if( flags[i] )
+            indication |= (1 << (ARRAY_SIZE(flags) - 1 - i));
+    }
+    return indication;
+}
+
+enum vlc_hevc_profile_e hevc_get_vlc_profile( const hevc_sequence_parameter_set_t *p_sps )
+{
+    unsigned indication = 0;
+    enum hevc_general_profile_idc_e profile = p_sps->profile_tier_level.general.profile_idc;
+    switch( profile )
+    {
+        case HEVC_PROFILE_IDC_REXT:
+            indication = hevc_make_indication( &p_sps->profile_tier_level.general ) & 0x1FF;
+            break;
+        case HEVC_PROFILE_IDC_HIGH_THROUGHPUT:
+        case HEVC_PROFILE_IDC_SCREEN_EXTENDED:
+            indication = hevc_make_indication( &p_sps->profile_tier_level.general );
+            break;
+        default:
+            break;
+    }
+
+    /* all intras have insignifiant lowest bit */
+    if( p_sps->profile_tier_level.general.idc4to7.intra_constraint_flag )
+        indication &= ~1;
+
+    return (indication << HEVC_INDICATION_SHIFT) | profile;
 }
 
 /*

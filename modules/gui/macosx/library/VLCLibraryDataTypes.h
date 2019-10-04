@@ -41,6 +41,7 @@ extern const long long int VLCMediaLibraryMediaItemDurationDenominator;
 - (instancetype)initWithFile:(struct vlc_ml_file_t *)p_file;
 
 @property (readonly) NSString *MRL;
+@property (readonly) NSURL *fileURL;
 @property (readonly) vlc_ml_file_type_t fileType;
 @property (readonly) BOOL external;
 @property (readonly) BOOL removable;
@@ -168,7 +169,7 @@ extern const long long int VLCMediaLibraryMediaItemDurationDenominator;
 @property (readonly) time_t lastPlayedDate;
 @property (readonly) NSString *title;
 
-@property (readonly) NSString *smallArtworkMRL;
+@property (readonly, nullable) NSString *smallArtworkMRL;
 
 @property (readonly) BOOL smallArtworkGenerated;
 @property (readonly) BOOL favorited;

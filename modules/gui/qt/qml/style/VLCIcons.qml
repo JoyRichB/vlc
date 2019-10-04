@@ -161,5 +161,11 @@ Item {
     property string topbar_next : "\ue081"
     property string topbar_filter : "\ue082"
     property string topbar_sort : "\ue083"
+    property string rename : "\ue084"
+    property string del : "\ue085"
+    property string close : "\ue086"
+    property string ellipsis : "\ue087"
+    property string grid : "\ue088"
+    property string list : "\ue089"
 
 }

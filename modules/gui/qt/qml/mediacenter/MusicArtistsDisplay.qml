@@ -45,8 +45,8 @@ Utils.NavigableFocusScope {
         }
 
         delegate: Utils.ListItem {
-            height: VLCStyle.icon_normal
-            width: parent.width
+            height: VLCStyle.icon_normal + VLCStyle.margin_small
+            width: artistList.width
 
             color: VLCStyle.colors.getBgColor(delegateModel.inSelected, this.hovered, this.activeFocus)
 
@@ -76,18 +76,14 @@ Utils.NavigableFocusScope {
             }
 
             onPlayClicked: {
-                console.log('Clicked on play : '+model.name);
                 medialib.addAndPlay( model.id )
             }
             onAddToPlaylistClicked: {
-                console.log('Clicked on addToPlaylist : '+model.name);
                 medialib.addToPlaylist( model.id );
             }
         }
 
         function actionAtIndex(index) {
-            console.log("actionAtIndex", index)
-            artistBanner.artist = delegateModel.items.get(index).model
             if (delegateModel.selectedGroup.count > 1) {
                 var list = []
                 for (var i = 0; i < delegateModel.selectedGroup.count; i++)
@@ -133,11 +129,8 @@ Utils.NavigableFocusScope {
             onSelectionUpdated: delegateModel.updateSelection( keyModifiers, oldIndex, newIndex )
             onCurrentIndexChanged: delegateModel.actionAtIndex(currentIndex)
 
-            onActionRight: view.focus = true
-            onActionLeft: root.actionLeft(index)
-            onActionUp: root.actionUp(index)
-            onActionDown: root.actionDown(index)
-            onActionCancel: root.actionCancel(index)
+            navigationParent: root
+            navigationRight: function () { view.focus = true }
         }
 
         FocusScope {
@@ -146,30 +139,27 @@ Utils.NavigableFocusScope {
             height: parent.height
 
             property alias currentIndex: albumSubView.currentIndex
-            ColumnLayout {
-                anchors.fill: parent
-                ArtistTopBanner {
-                    id: artistBanner
-                    Layout.fillWidth: true
-                    focus: false
-                    //contentY: albumsView.contentY
-                    contentY: 0
-                    artist: undefined
-                }
-                MusicAlbumsDisplay {
-                    id: albumSubView
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    focus: true
-                    parentId: artistId
-                    onActionLeft: artistList.focus = true
 
-                    onActionRight: root.actionRight(index)
-                    onActionUp: root.actionUp(index)
-                    onActionDown: root.actionDown(index)
-                    onActionCancel: root.actionCancel(index)
+            MusicAlbumsDisplay {
+                id: albumSubView
+                anchors.fill: parent
+
+                header: ArtistTopBanner {
+                    id: artistBanner
+                    width: albumSubView.width
+                    focus: false
+                    artist: (artistList.currentIndex >= 0)
+                            ? delegateModel.items.get(artistList.currentIndex).model
+                            : ({})
                 }
+
+                focus: true
+                parentId: artistId
+
+                navigationParent: root
+                navigationLeft: function () { artistList.focus = true }
             }
+
         }
     }
 

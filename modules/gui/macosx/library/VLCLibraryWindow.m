@@ -38,8 +38,8 @@
 #import "library/VLCLibraryCollectionViewItem.h"
 #import "library/VLCLibraryModel.h"
 #import "library/VLCLibraryCollectionViewSupplementaryElementView.h"
-#import "library/VLCLibraryAlternativeAudioViewController.h"
 #import "library/VLCLibrarySortingMenuController.h"
+#import "library/VLCLibraryAlbumTableCellView.h"
 
 #import "media-source/VLCMediaSourceBaseDataSource.h"
 
@@ -72,7 +72,6 @@ const CGFloat VLCLibraryWindowDefaultPlaylistWidth = 340.;
     VLCLibraryGroupDataSource *_libraryAudioGroupDataSource;
     VLCLibrarySortingMenuController *_librarySortingMenuController;
     VLCMediaSourceBaseDataSource *_mediaSourceDataSource;
-    VLCLibraryAlternativeAudioViewController *_alternativeAudioViewController;
     VLCPlaylistSortingMenuController *_playlistSortingMenuController;
 
     VLCPlaylistController *_playlistController;
@@ -174,14 +173,13 @@ static int ShowController(vlc_object_t *p_this, const char *psz_variable,
     _fspanel = [[VLCFSPanelController alloc] init];
     [_fspanel showWindow:self];
 
-    _segmentedTitleControl.segmentCount = 5;
+    _segmentedTitleControl.segmentCount = 4;
     [_segmentedTitleControl setTarget:self];
     [_segmentedTitleControl setAction:@selector(segmentedControlAction:)];
     [_segmentedTitleControl setLabel:_NS("Video") forSegment:0];
     [_segmentedTitleControl setLabel:_NS("Music") forSegment:1];
-    [_segmentedTitleControl setLabel:_NS("Music") forSegment:2];
-    [_segmentedTitleControl setLabel:_NS("Local Network") forSegment:3];
-    [_segmentedTitleControl setLabel:_NS("Internet") forSegment:4];
+    [_segmentedTitleControl setLabel:_NS("Local Network") forSegment:2];
+    [_segmentedTitleControl setLabel:_NS("Internet") forSegment:3];
     [_segmentedTitleControl sizeToFit];
     [_segmentedTitleControl setSelectedSegment:0];
 
@@ -222,12 +220,11 @@ static int ShowController(vlc_object_t *p_this, const char *psz_variable,
 
     _libraryAudioDataSource = [[VLCLibraryAudioDataSource alloc] init];
     _libraryAudioDataSource.libraryModel = mainInstance.libraryController.libraryModel;
-    _libraryAudioDataSource.categorySelectionTableView = _audioCategorySelectionTableView;
     _libraryAudioDataSource.collectionSelectionTableView = _audioCollectionSelectionTableView;
     _libraryAudioDataSource.groupSelectionTableView = _audioGroupSelectionTableView;
-    _audioCategorySelectionTableView.dataSource = _libraryAudioDataSource;
-    _audioCategorySelectionTableView.delegate = _libraryAudioDataSource;
-    _audioCategorySelectionTableView.rowHeight = VLCLibraryWindowSmallRowHeight;
+    _libraryAudioDataSource.segmentedControl = self.audioSegmentedControl;
+    _libraryAudioDataSource.collectionView = self.audioLibraryCollectionView;
+    [_libraryAudioDataSource setupAppearance];
     _audioCollectionSelectionTableView.dataSource = _libraryAudioDataSource;
     _audioCollectionSelectionTableView.delegate = _libraryAudioDataSource;
     _audioCollectionSelectionTableView.rowHeight = VLCLibraryWindowLargeRowHeight;
@@ -235,7 +232,7 @@ static int ShowController(vlc_object_t *p_this, const char *psz_variable,
     _libraryAudioDataSource.groupDataSource = _libraryAudioGroupDataSource;
     _audioGroupSelectionTableView.dataSource = _libraryAudioGroupDataSource;
     _audioGroupSelectionTableView.delegate = _libraryAudioGroupDataSource;
-    _audioGroupSelectionTableView.rowHeight = 450.;
+    _audioGroupSelectionTableView.rowHeight = [VLCLibraryAlbumTableCellView defaultHeight];
 
     _mediaSourceDataSource = [[VLCMediaSourceBaseDataSource alloc] init];
     _mediaSourceDataSource.collectionView = _mediaSourceCollectionView;
@@ -251,12 +248,6 @@ static int ShowController(vlc_object_t *p_this, const char *psz_variable,
     self.upNextLabel.stringValue = _NS("Playlist");
     [self updateColorsBasedOnAppearance];
     self.openMediaButton.title = _NS("Open media...");
-
-    _alternativeAudioViewController = [[VLCLibraryAlternativeAudioViewController alloc] init];
-    _alternativeAudioViewController.collectionView = self.alternativeAudioCollectionView;
-    _alternativeAudioViewController.segmentedControl = self.alternativeAudioSegmentedControl;
-    _alternativeAudioViewController.libraryModel = mainInstance.libraryController.libraryModel;
-    [_alternativeAudioViewController setupAppearance];
 
     _mainSplitView.delegate = self;
     _lastPlaylistWidthBeforeCollaps = VLCLibraryWindowDefaultPlaylistWidth;
@@ -366,95 +357,91 @@ static int ShowController(vlc_object_t *p_this, const char *psz_variable,
 {
     switch (_segmentedTitleControl.selectedSegment) {
         case 0:
-            if (_mediaSourceView.superview != nil) {
-                [_mediaSourceView removeFromSuperview];
-            }
-            if (_audioLibrarySplitView.superview != nil) {
-                [_audioLibrarySplitView removeFromSuperview];
-            }
-            if (_alternativeAudioView.superview != nil) {
-                [_alternativeAudioView removeFromSuperview];
-            }
-            if (_videoLibraryStackView.superview == nil) {
-                _videoLibraryStackView.translatesAutoresizingMaskIntoConstraints = NO;
-                [_libraryTargetView addSubview:_videoLibraryStackView];
-                NSDictionary *dict = NSDictionaryOfVariableBindings(_videoLibraryStackView);
-                [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|[_videoLibraryStackView(>=572.)]|" options:0 metrics:0 views:dict]];
-                [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|[_videoLibraryStackView(>=444.)]|" options:0 metrics:0 views:dict]];
-            }
-            [_videoLibraryCollectionView reloadData];
-            [_recentVideoLibraryCollectionView reloadData];
-            _librarySortButton.hidden = NO;
-            _alternativeAudioSegmentedControl.hidden = YES;
+            [self showVideoLibrary];
             break;
 
         case 1:
-            if (_mediaSourceView.superview != nil) {
-                [_mediaSourceView removeFromSuperview];
-            }
-            if (_videoLibraryStackView.superview != nil) {
-                [_videoLibraryStackView removeFromSuperview];
-            }
-            if (_alternativeAudioView.superview != nil) {
-                [_alternativeAudioView removeFromSuperview];
-            }
-            if (_audioLibrarySplitView.superview == nil) {
-                _audioLibrarySplitView.translatesAutoresizingMaskIntoConstraints = NO;
-                [_libraryTargetView addSubview:_audioLibrarySplitView];
-                NSDictionary *dict = NSDictionaryOfVariableBindings(_audioLibrarySplitView);
-                [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|[_audioLibrarySplitView(>=572.)]|" options:0 metrics:0 views:dict]];
-                [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|[_audioLibrarySplitView(>=444.)]|" options:0 metrics:0 views:dict]];
-            }
-            [_audioCategorySelectionTableView reloadData];
-            [_audioCollectionSelectionTableView reloadData];
-            _librarySortButton.hidden = NO;
-            _alternativeAudioSegmentedControl.hidden = NO;
-            break;
-
-        case 2:
-            if (_mediaSourceView.superview != nil) {
-                [_mediaSourceView removeFromSuperview];
-            }
-            if (_videoLibraryStackView.superview != nil) {
-                [_videoLibraryStackView removeFromSuperview];
-            }
-            if (_audioLibrarySplitView.superview != nil) {
-                [_audioLibrarySplitView removeFromSuperview];
-            }
-            if (_alternativeAudioView.superview == nil) {
-                _alternativeAudioView.translatesAutoresizingMaskIntoConstraints = NO;
-                [_libraryTargetView addSubview:_alternativeAudioView];
-                NSDictionary *dict = NSDictionaryOfVariableBindings(_alternativeAudioView);
-                [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|[_alternativeAudioView(>=572.)]|" options:0 metrics:0 views:dict]];
-                [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|[_alternativeAudioView(>=444.)]|" options:0 metrics:0 views:dict]];
-            }
-            [_alternativeAudioViewController reloadAppearance];
-            _librarySortButton.hidden = NO;
-            _alternativeAudioSegmentedControl.hidden = NO;
+            [self showAudioLibrary];
             break;
 
         default:
-            if (_videoLibraryStackView.superview != nil) {
-                [_videoLibraryStackView removeFromSuperview];
-            }
-            if (_audioLibrarySplitView.superview != nil) {
-                [_audioLibrarySplitView removeFromSuperview];
-            }
-            if (_alternativeAudioView.superview != nil) {
-                [_alternativeAudioView removeFromSuperview];
-            }
-            if (_mediaSourceView.superview == nil) {
-                _mediaSourceView.translatesAutoresizingMaskIntoConstraints = NO;
-                [_libraryTargetView addSubview:_mediaSourceView];
-                NSDictionary *dict = NSDictionaryOfVariableBindings(_mediaSourceView);
-                [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|[_mediaSourceView(>=572.)]|" options:0 metrics:0 views:dict]];
-                [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|[_mediaSourceView(>=444.)]|" options:0 metrics:0 views:dict]];
-            }
-            _mediaSourceDataSource.mediaSourceMode = _segmentedTitleControl.selectedSegment == 3 ? VLCMediaSourceModeLAN : VLCMediaSourceModeInternet;
-            _librarySortButton.hidden = YES;
-            _alternativeAudioSegmentedControl.hidden = YES;
+            [self showMediaSourceAppearance];
             break;
     }
+}
+
+- (void)showVideoLibrary
+{
+    if (_mediaSourceView.superview != nil) {
+        [_mediaSourceView removeFromSuperview];
+    }
+    if (_audioLibraryView.superview != nil) {
+        [_audioLibraryView removeFromSuperview];
+    }
+    if (_videoLibraryStackView.superview == nil) {
+        _videoLibraryStackView.translatesAutoresizingMaskIntoConstraints = NO;
+        [_libraryTargetView addSubview:_videoLibraryStackView];
+        NSDictionary *dict = NSDictionaryOfVariableBindings(_videoLibraryStackView);
+        [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|[_videoLibraryStackView(>=572.)]|" options:0 metrics:0 views:dict]];
+        [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|[_videoLibraryStackView(>=444.)]|" options:0 metrics:0 views:dict]];
+    }
+    [_videoLibraryCollectionView reloadData];
+    [_recentVideoLibraryCollectionView reloadData];
+    _librarySortButton.hidden = NO;
+    _audioSegmentedControl.hidden = YES;
+}
+
+- (void)showAudioLibrary
+{
+    if (_mediaSourceView.superview != nil) {
+        [_mediaSourceView removeFromSuperview];
+    }
+    if (_videoLibraryStackView.superview != nil) {
+        [_videoLibraryStackView removeFromSuperview];
+    }
+    if (_audioLibraryView.superview == nil) {
+        _audioLibraryView.translatesAutoresizingMaskIntoConstraints = NO;
+        [_libraryTargetView addSubview:_audioLibraryView];
+        NSDictionary *dict = NSDictionaryOfVariableBindings(_audioLibraryView);
+        [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|[_audioLibraryView(>=572.)]|" options:0 metrics:0 views:dict]];
+        [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|[_audioLibraryView(>=444.)]|" options:0 metrics:0 views:dict]];
+    }
+    _librarySortButton.hidden = NO;
+    _audioSegmentedControl.hidden = NO;
+
+    if (self.gridVsListSegmentedControl.selectedSegment == 0) {
+        _audioLibrarySplitView.hidden = YES;
+        _audioCollectionViewScrollView.hidden = NO;
+        [_libraryAudioDataSource reloadAppearance];
+    } else {
+        _audioLibrarySplitView.hidden = NO;
+        _audioCollectionViewScrollView.hidden = YES;
+        [_libraryAudioDataSource reloadAppearance];
+        [_audioCollectionSelectionTableView reloadData];
+    }
+    self.gridVsListSegmentedControl.target = self;
+    self.gridVsListSegmentedControl.action = @selector(segmentedControlAction:);
+}
+
+- (void)showMediaSourceAppearance
+{
+    if (_videoLibraryStackView.superview != nil) {
+        [_videoLibraryStackView removeFromSuperview];
+    }
+    if (_audioLibraryView.superview != nil) {
+        [_audioLibraryView removeFromSuperview];
+    }
+    if (_mediaSourceView.superview == nil) {
+        _mediaSourceView.translatesAutoresizingMaskIntoConstraints = NO;
+        [_libraryTargetView addSubview:_mediaSourceView];
+        NSDictionary *dict = NSDictionaryOfVariableBindings(_mediaSourceView);
+        [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|[_mediaSourceView(>=572.)]|" options:0 metrics:0 views:dict]];
+        [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|[_mediaSourceView(>=444.)]|" options:0 metrics:0 views:dict]];
+    }
+    _mediaSourceDataSource.mediaSourceMode = _segmentedTitleControl.selectedSegment == 2 ? VLCMediaSourceModeLAN : VLCMediaSourceModeInternet;
+    _librarySortButton.hidden = YES;
+    _audioSegmentedControl.hidden = YES;
+    [_mediaSourceDataSource reloadViews];
 }
 
 - (IBAction)playlistDoubleClickAction:(id)sender
@@ -583,6 +570,10 @@ static int ShowController(vlc_object_t *p_this, const char *psz_variable,
 
 - (void)enableVideoPlaybackAppearance
 {
+    [_mediaSourceView removeFromSuperviewWithoutNeedingDisplay];
+    [_videoLibraryStackView removeFromSuperviewWithoutNeedingDisplay];
+    [_audioLibraryView removeFromSuperviewWithoutNeedingDisplay];
+
     [self.videoView setHidden:NO];
 
     if (self.nativeFullscreenMode) {
@@ -619,6 +610,7 @@ static int ShowController(vlc_object_t *p_this, const char *psz_variable,
     // restore alpha value to 1 for the case that macosx-opaqueness is set to < 1
     [self setAlphaValue:1.0];
     [self.videoView setHidden:YES];
+    [self segmentedControlAction:nil];
 
     if (self.nativeFullscreenMode) {
         [self showControlsBar];
@@ -651,7 +643,6 @@ static int ShowController(vlc_object_t *p_this, const char *psz_variable,
             }
         }
     }
-
 }
 
 @end

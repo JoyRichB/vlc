@@ -159,7 +159,8 @@ static void test_input_metadata_timeout(libvlc_instance_t *vlc, int timeout,
         .on_preparse_ended = input_item_preparse_timeout,
     };
     i_ret = libvlc_MetadataRequest(vlc->p_libvlc_int, p_item,
-                                   META_REQUEST_OPTION_SCOPE_LOCAL,
+                                   META_REQUEST_OPTION_SCOPE_LOCAL |
+                                   META_REQUEST_OPTION_FETCH_LOCAL,
                                    &cbs, &sem, timeout, vlc);
     assert(i_ret == 0);
 
@@ -307,8 +308,8 @@ static void test_media_subitems(libvlc_instance_t *vlc)
     }
     free (subitems_realpath);
 
-#ifdef HAVE_OPENAT
-    /* listing directory via a fd works only if HAVE_OPENAT is defined */
+#ifdef HAVE_FSTATAT
+    /* listing directory via a fd works only if fstatat() exists */
     int fd = open (subitems_path, O_RDONLY);
     test_log ("Testing media_subitems: fd: '%d'\n", fd);
     assert (fd >= 0);

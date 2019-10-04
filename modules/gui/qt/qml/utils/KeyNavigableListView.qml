@@ -29,9 +29,6 @@ NavigableFocusScope {
     signal selectAll()
     signal actionAtIndex( int index )
 
-    //here to keep the same interface as GridView
-    function shiftX( index ) { return 0 }
-
     //forward view properties
     property alias spacing: view.spacing
     property alias interactive: view.interactive
@@ -44,6 +41,7 @@ NavigableFocusScope {
     property alias contentX: view.contentX
     property alias contentY:  view.contentY
     property alias contentHeight: view.contentHeight
+    property alias contentWidth: view.contentWidth
 
     property alias footer: view.footer
     property alias footerItem: view.footerItem
@@ -57,6 +55,14 @@ NavigableFocusScope {
     property alias highlightMoveVelocity: view.highlightMoveVelocity
 
     property alias section: view.section
+    property alias orientation: view.orientation
+
+    function nextPage() {
+        view.contentX += (Math.min(view.width, (view.contentWidth - view.width - view.contentX ) ))
+    }
+    function prevPage() {
+        view.contentX -= Math.min(view.width,view.contentX )
+    }
 
     Component {
         id: sectionHeading
@@ -83,11 +89,14 @@ NavigableFocusScope {
         anchors.fill: parent
         //key navigation is reimplemented for item selection
         keyNavigationEnabled: false
+        contentWidth: contentItem.childrenRect.width
+        contentHeight: contentItem.childrenRect.height
 
         focus: true
 
         clip: true
         ScrollBar.vertical: ScrollBar { id: scroll_id }
+        ScrollBar.horizontal: ScrollBar { }
 
         highlightMoveDuration: 300 //ms
         highlightMoveVelocity: 1000 //px/s
@@ -99,8 +108,8 @@ NavigableFocusScope {
         Connections {
             target: view.currentItem
             ignoreUnknownSignals: true
-            onActionRight: listview_id.actionRight(currentIndex)
-            onActionLeft: listview_id.actionLeft(currentIndex)
+            onActionRight: listview_id.navigationRight(currentIndex)
+            onActionLeft: listview_id.navigationLeft(currentIndex)
             onActionDown: {
                 if ( currentIndex !== modelCount - 1 ) {
                     var newIndex = currentIndex + 1
@@ -108,7 +117,7 @@ NavigableFocusScope {
                     currentIndex = newIndex
                     selectionUpdated(0, oldIndex, newIndex)
                 } else {
-                    root.actionDown(currentIndex)
+                    root.navigationDown(currentIndex)
                 }
             }
             onActionUp: {
@@ -118,23 +127,40 @@ NavigableFocusScope {
                     currentIndex = newIndex
                     selectionUpdated(0, oldIndex, newIndex)
                 } else {
-                    root.actionUp(currentIndex)
+                    root.navigationUp(currentIndex)
                 }
             }
         }
 
         Keys.onPressed: {
             var newIndex = -1
-            if ( event.key === Qt.Key_Down || event.matches(StandardKey.MoveToNextLine) ||event.matches(StandardKey.SelectNextLine) ) {
-                if (currentIndex !== modelCount - 1 )
-                    newIndex = currentIndex + 1
-            } else if ( event.key === Qt.Key_PageDown || event.matches(StandardKey.MoveToNextPage) ||event.matches(StandardKey.SelectNextPage)) {
-                newIndex = Math.min(modelCount - 1, currentIndex + 10)
-            } else if ( event.key === Qt.Key_Up || event.matches(StandardKey.MoveToPreviousLine) ||event.matches(StandardKey.SelectPreviousLine) ) {
-                if ( currentIndex !== 0 )
-                    newIndex = currentIndex - 1
-            } else if ( event.key === Qt.Key_PageUp || event.matches(StandardKey.MoveToPreviousPage) ||event.matches(StandardKey.SelectPreviousPage)) {
-                newIndex = Math.max(0, currentIndex - 10)
+
+            if (orientation === ListView.Vertical)
+            {
+                if ( event.key === Qt.Key_Down || event.matches(StandardKey.MoveToNextLine) ||event.matches(StandardKey.SelectNextLine) ) {
+                    if (currentIndex !== modelCount - 1 )
+                        newIndex = currentIndex + 1
+                } else if ( event.key === Qt.Key_PageDown || event.matches(StandardKey.MoveToNextPage) ||event.matches(StandardKey.SelectNextPage)) {
+                    newIndex = Math.min(modelCount - 1, currentIndex + 10)
+                } else if ( event.key === Qt.Key_Up || event.matches(StandardKey.MoveToPreviousLine) ||event.matches(StandardKey.SelectPreviousLine) ) {
+                    if ( currentIndex !== 0 )
+                        newIndex = currentIndex - 1
+                } else if ( event.key === Qt.Key_PageUp || event.matches(StandardKey.MoveToPreviousPage) ||event.matches(StandardKey.SelectPreviousPage)) {
+                    newIndex = Math.max(0, currentIndex - 10)
+                }
+            }else{
+                if ( event.key === Qt.Key_Right || event.matches(StandardKey.SelectNextLine) ) {
+                    if (currentIndex !== modelCount - 1 )
+                        newIndex = currentIndex + 1
+                }
+                else if ( event.key === Qt.Key_PageDown || event.matches(StandardKey.MoveToNextPage) ||event.matches(StandardKey.SelectNextPage)) {
+                    newIndex = Math.min(modelCount - 1, currentIndex + 10)
+                } else if ( event.key === Qt.Key_Left || event.matches(StandardKey.SelectPreviousLine) ) {
+                    if ( currentIndex !== 0 )
+                        newIndex = currentIndex - 1
+                } else if ( event.key === Qt.Key_PageUp || event.matches(StandardKey.MoveToPreviousPage) ||event.matches(StandardKey.SelectPreviousPage)) {
+                    newIndex = Math.max(0, currentIndex - 10)
+                }
             }
 
             if (newIndex >= 0 && newIndex < modelCount) {
@@ -158,4 +184,24 @@ NavigableFocusScope {
             }
         }
     }
+
+    RoundButton{
+        id: leftBtn
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.left: parent.left
+        text:"<"
+        onClicked: listview_id.prevPage()
+        visible: view.orientation === ListView.Horizontal && view.contentX > 0
+    }
+
+
+    RoundButton{
+        id: rightBtn
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.right: parent.right
+        text:">"
+        onClicked: listview_id.nextPage()
+        visible: view.orientation === ListView.Horizontal && (view.contentWidth - view.width - view.contentX) > 0
+    }
 }
+

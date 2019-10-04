@@ -86,7 +86,6 @@
 @property (readwrite, weak) IBOutlet NSMenuItem *next;
 @property (readwrite, weak) IBOutlet NSMenuItem *random;
 @property (readwrite, weak) IBOutlet NSMenuItem *repeat;
-@property (readwrite, weak) IBOutlet NSMenuItem *loop;
 @property (readwrite, weak) IBOutlet NSMenuItem *AtoBloop;
 @property (readwrite, weak) IBOutlet NSMenuItem *sortPlaylist;
 @property (readwrite, weak) IBOutlet NSMenuItem *quitAfterPB;
@@ -143,8 +142,13 @@
 @property (readwrite, weak) IBOutlet NSMenuItem *subtitle_track;
 @property (readwrite, weak) IBOutlet NSMenu *subtitle_tracksMenu;
 @property (readwrite, weak) IBOutlet NSMenuItem *openSubtitleFile;
-@property (readwrite, weak) IBOutlet NSMenu *subtitle_sizeMenu;
-@property (readwrite, weak) IBOutlet NSMenuItem *subtitle_size;
+@property (readwrite, weak) IBOutlet NSMenuItem *subtitleSize;
+@property (readwrite, weak) IBOutlet NSView *subtitleSizeView;
+@property (readwrite, weak) IBOutlet NSTextField *subtitleSizeLabel;
+@property (readwrite, weak) IBOutlet NSTextField *subtitleSizeSmallerLabel;
+@property (readwrite, weak) IBOutlet NSTextField *subtitleSizeLargerLabel;
+@property (readwrite, weak) IBOutlet NSSlider *subtitleSizeSlider;
+@property (readwrite, weak) IBOutlet NSTextField *subtitleSizeTextField;
 @property (readwrite, weak) IBOutlet NSMenu *subtitle_textcolorMenu;
 @property (readwrite, weak) IBOutlet NSMenuItem *subtitle_textcolor;
 @property (readwrite, weak) IBOutlet NSMenu *subtitle_bgcolorMenu;
@@ -197,11 +201,19 @@
 @property (readwrite, strong) IBOutlet NSMenu *voutMenu;
 @property (readwrite, strong) IBOutlet NSMenuItem *voutMenuplay;
 @property (readwrite, strong) IBOutlet NSMenuItem *voutMenustop;
+@property (readwrite, strong) IBOutlet NSMenuItem *voutMenuRecord;
 @property (readwrite, strong) IBOutlet NSMenuItem *voutMenuprev;
 @property (readwrite, strong) IBOutlet NSMenuItem *voutMenunext;
 @property (readwrite, strong) IBOutlet NSMenuItem *voutMenuvolup;
 @property (readwrite, strong) IBOutlet NSMenuItem *voutMenuvoldown;
 @property (readwrite, strong) IBOutlet NSMenuItem *voutMenumute;
+@property (readwrite, strong) IBOutlet NSMenuItem *voutMenuAudiotrack;
+@property (readwrite, strong) IBOutlet NSMenu *voutMenuAudiotrackMenu;
+@property (readwrite, strong) IBOutlet NSMenuItem *voutMenuVideotrack;
+@property (readwrite, strong) IBOutlet NSMenu *voutMenuVideotrackMenu;
+@property (readwrite, strong) IBOutlet NSMenuItem *voutMenuOpenSubtitleFile;
+@property (readwrite, strong) IBOutlet NSMenuItem *voutMenuSubtitlestrack;
+@property (readwrite, strong) IBOutlet NSMenu *voutMenuSubtitlestrackMenu;
 @property (readwrite, strong) IBOutlet NSMenuItem *voutMenufullscreen;
 @property (readwrite, strong) IBOutlet NSMenuItem *voutMenusnapshot;
 
@@ -227,7 +239,6 @@
 - (IBAction)next:(id)sender;
 - (IBAction)random:(id)sender;
 - (IBAction)repeat:(id)sender;
-- (IBAction)loop:(id)sender;
 
 - (IBAction)forward:(id)sender;
 - (IBAction)backward:(id)sender;
@@ -250,6 +261,7 @@
 - (IBAction)createVideoSnapshot:(id)sender;
 
 - (IBAction)addSubtitleFile:(id)sender;
+- (IBAction)subtitleSize:(id)sender;
 - (IBAction)switchSubtitleBackgroundOpacity:(id)sender;
 - (IBAction)telxTransparent:(id)sender;
 - (IBAction)telxNavLink:(id)sender;

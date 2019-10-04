@@ -39,12 +39,43 @@ Utils.NavigableFocusScope {
 
     Keys.priority: Keys.AfterItem
     Keys.onPressed: defaultKeyAction(event, 0)
+    onActionCancel: history.previous(History.Go)
 
-    onActionCancel: mainPlaylistController.stop()
     ColumnLayout {
         anchors.fill: parent
-        spacing: 0
+        spacing: VLCStyle.margin_xsmall
+        anchors.leftMargin: VLCStyle.margin_xlarge
+        anchors.rightMargin: VLCStyle.margin_xlarge
 
+        RowLayout {
+            Text {
+                text: player.time.toString()
+                color: VLCStyle.colors.playerFg
+                font.pixelSize: VLCStyle.fontSize_normal
+                font.bold: true
+                Layout.alignment: Qt.AlignLeft
+            }
+
+            Item {
+                Layout.fillWidth: true
+            }
+
+
+            Text {
+                text: (rootWindow.showRemainingTime && player.remainingTime.valid())
+                      ? "-" + player.remainingTime.toString()
+                      : player.length.toString()
+                color: VLCStyle.colors.playerFg
+                font.pixelSize: VLCStyle.fontSize_normal
+                font.bold: true
+                Layout.alignment: Qt.AlignRight
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: rootWindow.showRemainingTime = !rootWindow.showRemainingTime
+                }
+            }
+
+        }
         SliderBar {
             id: trackPositionSlider
             Layout.alignment: Qt.AlignLeft | Qt.AlignTop
@@ -53,79 +84,41 @@ Utils.NavigableFocusScope {
             Keys.onDownPressed: buttons.focus = true
         }
 
-        Utils.NavigableFocusScope {
+
+        PlayerButtonsLayout {
             id: buttons
+
+            model: playerControlBarModel
+            forceColors: true
+
             Layout.fillHeight: true
             Layout.fillWidth: true
 
             focus: true
 
-            onActionUp: {
+            navigationParent: root
+            navigationUp: function(index) {
                 if (trackPositionSlider.enabled)
                     trackPositionSlider.focus = true
                 else
-                    root.actionUp(index)
+                    root.navigationUp(index)
             }
 
-            onActionDown: root.actionDown(index)
-            onActionLeft: root.actionLeft(index)
-            onActionRight: root.actionRight(index)
-            onActionCancel: root.actionCancel(index)
 
             Keys.priority: Keys.AfterItem
             Keys.onPressed: defaultKeyAction(event, 0)
-
-            ToolBar {
-                id: buttonstoolbar
-                focusPolicy: Qt.StrongFocus
-                focus: true
-                anchors.fill: parent
-
-                background: Rectangle {
-                    color: "transparent"
-                }
-
-                RowLayout{
-                    id: buttonrow
-                    property bool _focusGiven: false
-                    focus: true
-                    anchors.fill: parent
-
-                    Repeater{
-                        model: PlayerControlBarModel{
-                            id: buttonsmodel
-                            mainCtx: mainctx
-                        }
-                        delegate: Loader{
-                            id: buttonloader
-
-                            sourceComponent: controlmodelbuttons.returnbuttondelegate(model.id)
-                            onLoaded: {
-                                if (! buttonloader.item.acceptFocus)
-                                    return
-                                else
-                                    if (!buttonrow._focusGiven){
-                                        buttonloader.item.forceActiveFocus()
-                                        buttonrow._focusGiven = true
-                                    }
-                                if(buttonloader.item instanceof Utils.IconToolButton)
-                                    buttonloader.item.size = model.size === PlayerControlBarModel.WIDGET_BIG ?
-                                                VLCStyle.icon_large : VLCStyle.icon_medium
-
-                                var buttonindex = DelegateModel.itemsIndex
-                                while(buttonindex > 0 && !(buttonrow.children[buttonindex-1].item.acceptFocus))
-                                    buttonindex = buttonindex-1
-
-                                if (buttonindex > 0)
-                                    buttonloader.item.KeyNavigation.left = buttonrow.children[buttonindex-1].item
-
-
-                            }
-                        }
-                    }
-                }
-            }
         }
+
+    }
+    Connections{
+        target: rootWindow
+        onToolBarConfUpdated: playerControlBarModel.reloadModel()
+    }
+
+    PlayerControlBarModel{
+        id:playerControlBarModel
+        mainCtx: mainctx
+        configName: "MainPlayerToolbar"
     }
 
     ControlButtons{

@@ -37,6 +37,10 @@
 using MediaSourcePtr = vlc_shared_data_ptr_type(vlc_media_source_t,
                                 vlc_media_source_Hold, vlc_media_source_Release);
 
+using InputItemPtr = vlc_shared_data_ptr_type(input_item_t,
+                                              input_item_Hold,
+                                              input_item_Release);
+
 class NetworkTreeItem
 {
     Q_GADGET
@@ -54,8 +58,8 @@ public:
     NetworkTreeItem& operator=( NetworkTreeItem&& ) = default;
 
     MediaSourcePtr source;
-    input_item_t *media;
-    input_item_t *parent;
+    InputItemPtr media;
+    InputItemPtr parent;
 };
 
 class MLNetworkModel : public QAbstractListModel
@@ -63,13 +67,23 @@ class MLNetworkModel : public QAbstractListModel
     Q_OBJECT
 
 public:
-    enum ItemType
-    {
-        TYPE_SHARE,
-        TYPE_DIR,
+    enum ItemType{
+        // qt version of input_item_type_e
+        TYPE_UNKNOWN = ITEM_TYPE_UNKNOWN,
         TYPE_FILE,
+        TYPE_DIRECTORY,
+        TYPE_DISC,
+        TYPE_CARD,
+        TYPE_STREAM,
+        TYPE_PLAYLIST,
+        TYPE_NODE,
     };
     Q_ENUM( ItemType );
+
+    Q_PROPERTY(QmlMainContext* ctx READ getCtx WRITE setCtx NOTIFY ctxChanged)
+    Q_PROPERTY(QVariant tree READ getTree WRITE setTree NOTIFY treeChanged)
+    Q_PROPERTY(bool is_on_provider_list READ getIsOnProviderList WRITE setIsOnProviderList NOTIFY isOnProviderListChanged)
+    Q_PROPERTY(QString sd_source READ getSdSource WRITE setSdSource NOTIFY sdSourceChanged)
 
     explicit MLNetworkModel(QObject* parent = nullptr);
     MLNetworkModel( QmlMainContext* ctx, QString parentMrl, QObject* parent = nullptr );
@@ -81,7 +95,21 @@ public:
     Qt::ItemFlags flags( const QModelIndex& idx ) const override;
     bool setData( const QModelIndex& idx,const QVariant& value, int role ) override;
 
-    Q_INVOKABLE void setContext(QmlMainContext* ctx, NetworkTreeItem parentMrl);
+    void setCtx(QmlMainContext* ctx);
+    void setTree(QVariant tree);
+    void setIsOnProviderList(bool b);
+    void setSdSource(QString s);
+
+    inline QmlMainContext* getCtx() { return m_ctx; }
+    inline QVariant getTree() { return QVariant::fromValue( m_treeItem); }
+    inline bool getIsOnProviderList() { return m_isOnProviderList; }
+    inline QString getSdSource() { return m_sdSource; }
+
+signals:
+    void ctxChanged();
+    void treeChanged();
+    void isOnProviderListChanged();
+    void sdSourceChanged();
 
 private:
     struct Item
@@ -117,8 +145,7 @@ private:
     void refreshMediaList(MediaSourcePtr s, input_item_node_t* const children[], size_t count , bool clear);
     void refreshDeviceList(MediaSourcePtr mediaSource, input_item_node_t* const children[], size_t count , bool clear);
 
-    static bool canBeIndexed(const QUrl& url );
-    void filterMainMrl( Item& item, size_t itemIndex );
+    static bool canBeIndexed(const QUrl& url , ItemType itemType );
 
 private:
     struct SourceListener
@@ -152,7 +179,10 @@ private:
     std::vector<Item> m_items;
     QmlMainContext* m_ctx = nullptr;
     vlc_medialibrary_t* m_ml;
+    bool m_hasTree = false;
     NetworkTreeItem m_treeItem;
+    bool m_isOnProviderList;
+    QString m_sdSource;
     std::vector<std::unique_ptr<SourceListener>> m_listeners;
 };
 

@@ -203,16 +203,13 @@ Utils.NavigableFocusScope {
 
                 sortModel: ListModel {
                     ListElement{ criteria: "track_number";  width:0.10; visible: true; text: qsTr("#"); showSection: "" }
-                    ListElement{ criteria: "title";         width:0.70; visible: true; text: qsTr("Title"); showSection: "" }
+                    ListElement{isPrimary: true; criteria: "title";         width:0.70; visible: true; text: qsTr("Title"); showSection: "" }
                     ListElement{ criteria: "duration";      width:0.20; visible: true; text: qsTr("Duration"); showSection: "" }
                 }
                 focus: true
 
-                onActionLeft:  playButton.forceActiveFocus()
-                onActionRight: root.actionRight(index)
-                onActionUp: root.actionUp(index)
-                onActionDown: root.actionDown(index)
-                onActionCancel: root.actionCancel(index)
+                navigationParent: root
+                navigationLeft: function() { playButton.forceActiveFocus() }
             }
 
             Item {

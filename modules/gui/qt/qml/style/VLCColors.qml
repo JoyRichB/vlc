@@ -75,6 +75,12 @@ Item {
     property color volhigh: "#ffc70f"
     property color volmax: "#f5271d"
 
+    property color videosGridInfoLeft: "grey"
+
+    property color playerFg: "white"
+    property color playerBg: "black"
+    property color playerBorder: "#222222"
+
     //vlc orange
     property color accent: "#FFFF950D";
 
@@ -129,7 +135,7 @@ Item {
                 target: colors_id
 
                 text: "#eff0f1"
-                textInactive: "#bdc3c7"
+                textInactive: "#626c76"
                 bg: "#232629"
                 bgInactive: "#232629"
                 bgAlt: "#31363b"

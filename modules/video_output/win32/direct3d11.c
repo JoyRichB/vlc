@@ -80,12 +80,11 @@ vlc_module_begin ()
     add_bool("direct3d11-hw-blending", true, HW_BLENDING_TEXT, HW_BLENDING_LONGTEXT, true)
 
 #if VLC_WINSTORE_APP
-    add_integer("winrt-d3dcontext",    0x0, NULL, NULL, true) /* ID3D11DeviceContext* */
     add_integer("winrt-swapchain",     0x0, NULL, NULL, true) /* IDXGISwapChain1*     */
 #endif
 
     add_shortcut("direct3d11")
-    set_callbacks_display(Open, Close,300)
+    set_callback_display(Open, 300)
 vlc_module_end ()
 
 struct vout_display_sys_t
@@ -105,6 +104,7 @@ struct vout_display_sys_t
     ID3D11Query              *prepareWait;
 
     picture_sys_d3d11_t      stagingSys;
+    plane_t                  stagingPlanes[PICTURE_PLANE_MAX];
     picture_pool_t           *pool; /* hardware decoding pool */
 
     d3d_vshader_t            projectionVShader;
@@ -122,8 +122,6 @@ struct vout_display_sys_t
 
     /* outside rendering */
     void *outside_opaque;
-    libvlc_video_direct3d_device_setup_cb    setupDeviceCb;
-    libvlc_video_direct3d_device_cleanup_cb  cleanupDeviceCb;
     libvlc_video_direct3d_update_output_cb   updateOutputCb;
     libvlc_video_swap_cb                     swapCb;
     libvlc_video_direct3d_start_end_rendering_cb startEndRenderingCb;
@@ -322,34 +320,41 @@ static int Open(vout_display_t *vd, const vout_display_cfg_t *cfg,
     CommonInit(vd, &sys->area, cfg);
 
     sys->outside_opaque = var_InheritAddress( vd, "vout-cb-opaque" );
-    sys->setupDeviceCb       = var_InheritAddress( vd, "vout-cb-setup" );
-    sys->cleanupDeviceCb     = var_InheritAddress( vd, "vout-cb-cleanup" );
     sys->updateOutputCb      = var_InheritAddress( vd, "vout-cb-update-output" );
     sys->swapCb              = var_InheritAddress( vd, "vout-cb-swap" );
     sys->startEndRenderingCb = var_InheritAddress( vd, "vout-cb-make-current" );
     sys->selectPlaneCb       = var_InheritAddress( vd, "vout-cb-select-plane" );
 
-    if ( sys->setupDeviceCb == NULL || sys->swapCb == NULL || sys->startEndRenderingCb == NULL || sys->updateOutputCb == NULL )
+    HRESULT hr;
+    d3d11_decoder_device_t *d3d11_decoder = GetD3D11OpaqueContext(context);
+    if ( d3d11_decoder != NULL )
     {
-#if VLC_WINSTORE_APP
-        /* LEGACY, the d3dcontext and swapchain were given by the host app */
-        if (var_InheritInteger(vd, "winrt-d3dcontext") == 0)
-        {
-            msg_Err(vd, "missing direct3d context for winstore");
-            goto error;
-        }
-#else /* !VLC_WINSTORE_APP */
+        hr = D3D11_CreateDeviceExternal(vd, d3d11_decoder->device,
+                                        is_d3d11_opaque(vd->source.i_chroma),
+                                        &sys->d3d_dev);
+    }
+    else
+    {
+        // No d3d11 device, we create one
+        hr = D3D11_CreateDevice(vd, &sys->hd3d, NULL, false, &sys->d3d_dev);
+    }
+    if (FAILED(hr)) {
+        msg_Err(vd, "Could not Create the D3D11 device. (hr=0x%lX)", hr);
+        goto error;
+    }
+
+    if ( sys->swapCb == NULL || sys->startEndRenderingCb == NULL || sys->updateOutputCb == NULL )
+    {
+#if !VLC_WINSTORE_APP
         if (CommonWindowInit(VLC_OBJECT(vd), &sys->area, &sys->sys,
                        vd->source.projection_mode != PROJECTION_MODE_RECTANGULAR))
             goto error;
 #endif /* !VLC_WINSTORE_APP */
 
         /* use our internal swapchain callbacks */
-        sys->outside_opaque      = CreateLocalSwapchainHandle(VLC_OBJECT(vd), &sys->hd3d, sys->sys.hvideownd);
+        sys->outside_opaque      = CreateLocalSwapchainHandle(VLC_OBJECT(vd), sys->sys.hvideownd, sys->d3d_dev.d3dcontext);
         if (unlikely(sys->outside_opaque == NULL))
             goto error;
-        sys->setupDeviceCb       = LocalSwapchainSetupDevice;
-        sys->cleanupDeviceCb     = LocalSwapchainCleanupDevice;
         sys->updateOutputCb      = LocalSwapchainUpdateOutput;
         sys->swapCb              = LocalSwapchainSwap;
         sys->startEndRenderingCb = LocalSwapchainStartEndRendering;
@@ -365,7 +370,7 @@ static int Open(vout_display_t *vd, const vout_display_cfg_t *cfg,
     }
 
     vout_window_SetTitle(sys->area.vdcfg.window, VOUT_TITLE " (Direct3D11 output)");
-    msg_Dbg(vd, "Direct3D11 device adapter successfully initialized");
+    msg_Dbg(vd, "Direct3D11 display adapter successfully initialized");
 
     vd->info.can_scale_spu        = true;
 
@@ -384,6 +389,7 @@ static int Open(vout_display_t *vd, const vout_display_cfg_t *cfg,
     vd->prepare = Prepare;
     vd->display = Display;
     vd->control = Control;
+    vd->close = Close;
 
     msg_Dbg(vd, "Direct3D11 Open Succeeded");
 
@@ -424,7 +430,7 @@ static picture_pool_t *Pool(vout_display_t *vd, unsigned pool_size)
         /* only provide enough for the filters, we can still do direct rendering */
         slices = __MIN(slices, 6);
 
-    if (AllocateTextures(vd, &sys->d3d_dev, sys->picQuad.textureFormat, &sys->area.texture_source, slices, textures))
+    if (AllocateTextures(vd, &sys->d3d_dev, sys->picQuad.textureFormat, &sys->area.texture_source, slices, textures, NULL))
         goto error;
 
     pictures = calloc(pool_size, sizeof(*pictures));
@@ -627,13 +633,11 @@ static void PreparePicture(vout_display_t *vd, picture_t *picture, subpicture_t 
 {
     vout_display_sys_t *sys = vd->sys;
 
-    if (sys->picQuad.textureFormat->formatTexture == DXGI_FORMAT_UNKNOWN || !is_d3d11_opaque(picture->format.i_chroma))
+    if (sys->picQuad.textureFormat->formatTexture == DXGI_FORMAT_UNKNOWN)
     {
         D3D11_MAPPED_SUBRESOURCE mappedResource;
-        D3D11_TEXTURE2D_DESC texDesc;
         int i;
         HRESULT hr;
-        plane_t planes[PICTURE_PLANE_MAX];
 
         bool b_mapped = true;
         for (i = 0; i < picture->i_planes; i++) {
@@ -646,22 +650,41 @@ static void PreparePicture(vout_display_t *vd, picture_t *picture, subpicture_t 
                 b_mapped = false;
                 break;
             }
-            ID3D11Texture2D_GetDesc(sys->stagingSys.texture[i], &texDesc);
-            planes[i].i_lines = texDesc.Height;
-            planes[i].i_pitch = mappedResource.RowPitch;
-            planes[i].p_pixels = mappedResource.pData;
-
-            planes[i].i_visible_lines = picture->p[i].i_visible_lines;
-            planes[i].i_visible_pitch = picture->p[i].i_visible_pitch;
+            sys->stagingPlanes[i].i_pitch = mappedResource.RowPitch;
+            sys->stagingPlanes[i].p_pixels = mappedResource.pData;
         }
 
         if (b_mapped)
         {
             for (i = 0; i < picture->i_planes; i++)
-                plane_CopyPixels(&planes[i], &picture->p[i]);
+                plane_CopyPixels(&sys->stagingPlanes[i], &picture->p[i]);
 
             for (i = 0; i < picture->i_planes; i++)
                 ID3D11DeviceContext_Unmap(sys->d3d_dev.d3dcontext, sys->stagingSys.resource[i], 0);
+        }
+    }
+    else if (!is_d3d11_opaque(picture->format.i_chroma))
+    {
+        D3D11_MAPPED_SUBRESOURCE mappedResource;
+        HRESULT hr;
+
+        hr = ID3D11DeviceContext_Map(sys->d3d_dev.d3dcontext, sys->stagingSys.resource[0],
+                                        0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+        if( unlikely(FAILED(hr)) )
+            msg_Err(vd, "Failed to map the %4.4s staging picture. (hr=0x%lX)", (const char*)&picture->format.i_chroma, hr);
+        else
+        {
+            uint8_t *buf = mappedResource.pData;
+            for (int i = 0; i < picture->i_planes; i++)
+            {
+                sys->stagingPlanes[i].p_pixels = buf;
+
+                plane_CopyPixels(&sys->stagingPlanes[i], &picture->p[i]);
+
+                buf += sys->stagingPlanes[i].i_pitch * sys->stagingPlanes[i].i_lines;
+            }
+
+            ID3D11DeviceContext_Unmap(sys->d3d_dev.d3dcontext, sys->stagingSys.resource[0], 0);
         }
     }
     else
@@ -851,29 +874,6 @@ static const d3d_format_t *GetBlendableFormat(vout_display_t *vd, vlc_fourcc_t i
 static int Direct3D11Open(vout_display_t *vd, video_format_t *fmtp)
 {
     vout_display_sys_t *sys = vd->sys;
-    HRESULT hr = E_FAIL;
-
-    libvlc_video_direct3d_device_cfg_t cfg = {
-        .hardware_decoding = is_d3d11_opaque( vd->source.i_chroma ),
-    };
-    libvlc_video_direct3d_device_setup_t out;
-    if ( !sys->setupDeviceCb( &sys->outside_opaque, &cfg, &out ) ||
-         out.device_context == NULL )
-    {
-        msg_Err(vd, "Missing external ID3D11DeviceContext");
-        return VLC_EGENERIC;
-    }
-    ID3D11DeviceContext *d3d11_ctx = out.device_context;
-    hr = D3D11_CreateDeviceExternal(vd, d3d11_ctx,
-                                    is_d3d11_opaque(vd->source.i_chroma),
-                                    &sys->d3d_dev);
-    if (FAILED(hr)) {
-        msg_Err(vd, "Could not Create the D3D11 device. (hr=0x%lX)", hr);
-        if ( sys->cleanupDeviceCb )
-            sys->cleanupDeviceCb( sys->outside_opaque );
-        return VLC_EGENERIC;
-    }
-
     video_format_t fmt;
     video_format_Copy(&fmt, &vd->source);
     int err = SetupOutputFormat(vd, &fmt);
@@ -899,8 +899,8 @@ static int Direct3D11Open(vout_display_t *vd, video_format_t *fmtp)
         }
         if (err != VLC_SUCCESS)
         {
-            if ( sys->cleanupDeviceCb )
-                sys->cleanupDeviceCb( sys->outside_opaque );
+            if ( sys->swapCb == LocalSwapchainSwap )
+                LocalSwapchainCleanupDevice( sys->outside_opaque );
             return err;
         }
     }
@@ -934,8 +934,8 @@ static int Direct3D11Open(vout_display_t *vd, video_format_t *fmtp)
 
     if (Direct3D11CreateGenericResources(vd)) {
         msg_Err(vd, "Failed to allocate resources");
-        if ( sys->cleanupDeviceCb )
-            sys->cleanupDeviceCb( sys->outside_opaque );
+        if ( sys->swapCb == LocalSwapchainSwap )
+            LocalSwapchainCleanupDevice( sys->outside_opaque );
         return VLC_EGENERIC;
     }
 
@@ -1046,10 +1046,10 @@ static void Direct3D11Close(vout_display_t *vd)
 
     D3D11_ReleaseDevice( &sys->d3d_dev );
 
-    if ( sys->cleanupDeviceCb )
-        sys->cleanupDeviceCb( sys->outside_opaque );
+    if ( sys->swapCb == LocalSwapchainSwap )
+        LocalSwapchainCleanupDevice( sys->outside_opaque );
 
-    msg_Dbg(vd, "Direct3D11 device adapter closed");
+    msg_Dbg(vd, "Direct3D11 display adapter closed");
 }
 
 static void UpdatePicQuadPosition(vout_display_t *vd)
@@ -1194,7 +1194,7 @@ static int Direct3D11CreateFormatResources(vout_display_t *vd, const video_forma
         /* we need a staging texture */
         ID3D11Texture2D *textures[D3D11_MAX_SHADER_VIEW] = {0};
 
-        if (AllocateTextures(vd, &sys->d3d_dev, sys->picQuad.textureFormat, &sys->area.texture_source, 1, textures))
+        if (AllocateTextures(vd, &sys->d3d_dev, sys->picQuad.textureFormat, &sys->area.texture_source, 1, textures, sys->stagingPlanes))
         {
             msg_Err(vd, "Failed to allocate the staging texture");
             return VLC_EGENERIC;
@@ -1212,7 +1212,6 @@ static int Direct3D11CreateFormatResources(vout_display_t *vd, const video_forma
     }
 #endif
 
-    vd->info.is_slow = false;
     return VLC_SUCCESS;
 }
 
@@ -1394,7 +1393,7 @@ static int Direct3D11MapSubpicture(vout_display_t *vd, int *subpicture_region_co
             if (unlikely(d3dquad==NULL)) {
                 continue;
             }
-            if (AllocateTextures(vd, &sys->d3d_dev, sys->regionQuad.textureFormat, &r->p_picture->format, 1, d3dquad->picSys.texture)) {
+            if (AllocateTextures(vd, &sys->d3d_dev, sys->regionQuad.textureFormat, &r->p_picture->format, 1, d3dquad->picSys.texture, NULL)) {
                 msg_Err(vd, "Failed to allocate %dx%d texture for OSD",
                         r->fmt.i_visible_width, r->fmt.i_visible_height);
                 for (int j=0; j<D3D11_MAX_SHADER_VIEW; j++)

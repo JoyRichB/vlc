@@ -17,150 +17,170 @@
  *****************************************************************************/
 import QtQuick 2.11
 import QtQuick.Controls 2.4
+import QtQuick.Layouts 1.3
 import QtQml.Models 2.2
 
 import org.videolan.medialib 0.1
 
 import "qrc:///utils/" as Utils
+import "qrc:///dialogs/" as DG
 import "qrc:///style/"
 
 Utils.NavigableFocusScope {
     id: root
+    property var currentIndex: view.currentItem.currentIndex
 
-    property alias model: delegateModel.model
+    DG.ModalDialog {
+        id: deleteDialog
+        rootWindow: root
+        title: qsTr("Are you sure you want to delete?")
+        standardButtons: Dialog.Yes | Dialog.No
 
+        onAccepted: console.log("Ok clicked")
+        onRejected: console.log("Cancel clicked")
+    }
+
+    Utils.MenuExt {
+        id: contextMenu
+        property var model: ({})
+        closePolicy: Popup.CloseOnReleaseOutside | Popup.CloseOnEscape
+
+        Utils.MenuItemExt {
+            id: playMenuItem
+            text: "Play from start"
+            onTriggered: medialib.addAndPlay( contextMenu.model.id )
+        }
+        Utils.MenuItemExt {
+            text: "Play all"
+            onTriggered: console.log("not implemented")
+        }
+        Utils.MenuItemExt {
+            text: "Play as audio"
+            onTriggered: console.log("not implemented")
+        }
+        Utils.MenuItemExt {
+            text: "Enqueue"
+            onTriggered: medialib.addToPlaylist( contextMenu.model.id )
+        }
+        Utils.MenuItemExt {
+            enabled: medialib.gridView
+            text: "Information"
+            onTriggered: {
+                view.currentItem.switchExpandItem(contextMenu.model.index, view.currentItem.currentItem)
+            }
+        }
+        Utils.MenuItemExt {
+            text: "Download subtitles"
+            onTriggered: console.log("not implemented")
+        }
+        Utils.MenuItemExt {
+            text: "Add to playlist"
+            onTriggered: console.log("not implemented")
+        }
+        Utils.MenuItemExt {
+            text: "Delete"
+            onTriggered: deleteDialog.open()
+        }
+
+        onClosed: contextMenu.parent.forceActiveFocus()
+
+    }
     Utils.SelectableDelegateModel {
-        id: delegateModel
+        id: videosDelegate
+
         model: MLVideoModel {
             ml: medialib
         }
-
-        delegate: Package {
-            id: element
-            Utils.GridItem {
-                Package.name: "grid"
-                focus: true
-                image: model.thumbnail || VLCStyle.noArtCover
-                title: model.title || qsTr("Unknown title")
-                selected: element.DelegateModel.inSelected
-                shiftX: view.currentItem.shiftX(model.index)
-
-                onItemClicked : {
-                    delegateModel.updateSelection( modifier , view.currentItem.currentIndex, index)
-                    view.currentItem.currentIndex = index
-                    view.currentItem.forceActiveFocus()
-                }
-                onPlayClicked: medialib.addAndPlay( model.id )
-                onAddToPlaylistClicked : medialib.addToPlaylist( model.id )
-            }
-
-            Utils.ListItem {
-                Package.name: "list"
-                width: root.width
-                height: VLCStyle.icon_normal
-                focus: true
-
-                color: VLCStyle.colors.getBgColor(element.DelegateModel.inSelected, this.hovered, this.activeFocus)
-
-                cover: Image {
-                    id: cover_obj
-                    fillMode: Image.PreserveAspectCrop
-                    source: model.thumbnail || VLCStyle.noArtCover
-                }
-                line1: (model.title || qsTr("Unknown title"))+" ["+model.duration+"]"
-
-                onItemClicked : {
-                    delegateModel.updateSelection( modifier, view.currentItem.currentIndex, index )
-                    view.currentItem.currentIndex = index
-                    this.forceActiveFocus()
-                }
-                onPlayClicked: medialib.addAndPlay( model.id )
-                onAddToPlaylistClicked : medialib.addToPlaylist( model.id )
-            }
+        delegate: Package{
+            Item { Package.name: "grid" }
         }
+
         function actionAtIndex(index) {
             var list = []
-            for (var i = 0; i < delegateModel.selectedGroup.count; i++)
-                list.push(delegateModel.selectedGroup.get(i).model.id)
+            for (var i = 0; i < videosDelegate.selectedGroup.count; i++)
+                list.push(videosDelegate.selectedGroup.get(i).model.id)
             medialib.addAndPlay( list )
-        }
-    }
-
-    /*
-     *define the intial position/selection
-     * This is done on activeFocus rather than Component.onCompleted because delegateModel.
-     * selectedGroup update itself after this event
-     */
-    onActiveFocusChanged: {
-        if (activeFocus && delegateModel.items.count > 0 && delegateModel.selectedGroup.count === 0) {
-            var initialIndex = 0
-            if (view.currentItem.currentIndex !== -1)
-                initialIndex = view.currentItem.currentIndex
-            delegateModel.items.get(initialIndex).inSelected = true
-            view.currentItem.currentIndex = initialIndex
         }
     }
 
     Component {
         id: gridComponent
 
-        Utils.KeyNavigableGridView {
-            id: gridView_id
+        VideoExpandableGrid {
+            id: videosGV
+            property Item currentItem: Item{}
 
-            model: delegateModel.parts.grid
-            modelCount: delegateModel.items.count
+            activeFocusOnTab:true
+            model: videosDelegate
+            modelCount: videosDelegate.items.count
 
-            focus: true
+            headerDelegate: Utils.LabelSeparator {
+                id: videosSeparator
+                width: videosGV.width
+                text: qsTr("Videos")
+            }
 
-            cellWidth: VLCStyle.cover_normal + VLCStyle.margin_small
-            cellHeight: VLCStyle.cover_normal + VLCStyle.fontHeight_normal
 
-            onSelectAll: delegateModel.selectAll()
-            onSelectionUpdated: delegateModel.updateSelection( keyModifiers, oldIndex, newIndex )
-            onActionAtIndex: delegateModel.actionAtIndex(index)
+            expandDelegateImplicitHeight: view.height/3
+            expandDelegateWidth: view.width
 
-            onActionLeft: root.actionLeft(index)
-            onActionRight: root.actionRight(index)
-            onActionDown: root.actionDown(index)
-            onActionUp: root.actionUp(index)
-            onActionCancel: root.actionCancel(index)
+            delegate: VideoGridItem {
+                id: videoGridItem
+
+                onItemClicked : {
+                    if (key == Qt.RightButton){
+                        contextMenu.model = videoGridItem.model
+                        contextMenu.popup(menuParent)
+                    }
+                    videosDelegate.updateSelection( modifier , videosGV.currentIndex, index)
+                    videosGV.currentIndex = index
+                    videosGV.forceActiveFocus()
+                    videosGV.renderLayout()
+                }
+            }
+
+            navigationParent: root
+
+            /*
+                         *define the intial position/selection
+                         * This is done on activeFocus rather than Component.onCompleted because videosDelegate.
+                         * selectedGroup update itself after this event
+                         */
+            onActiveFocusChanged: {
+                if (activeFocus && videosDelegate.items.count > 0 && videosDelegate.selectedGroup.count === 0) {
+                    videosDelegate.items.get(0).inSelected = true
+                }
+            }
+
         }
+
     }
+
 
     Component {
         id: listComponent
-        /* ListView */
-        Utils.KeyNavigableListView {
-            id: listView_id
+        MCVideoListDisplay {
+            height: view.height
+            width: view.width
+            onContextMenuButtonClicked:{
+                contextMenu.model = menuModel
+                contextMenu.popup(menuParent,contextMenu.width,0)
+            }
+            onRightClick:{
+                contextMenu.model = menuModel
+                contextMenu.popup(menuParent)
+            }
 
-            model: delegateModel.parts.list
-            modelCount: delegateModel.items.count
-
-            focus: true
-            spacing: VLCStyle.margin_xxxsmall
-
-            onSelectAll: delegateModel.selectAll()
-            onSelectionUpdated: delegateModel.updateSelection( keyModifiers, oldIndex, newIndex )
-            onActionAtIndex: delegateModel.actionAtIndex(index)
-
-            onActionLeft: root.actionLeft(index)
-            onActionRight: root.actionRight(index)
-            onActionDown: root.actionDown(index)
-            onActionUp: root.actionUp(index)
-            onActionCancel: root.actionCancel(index)
+            navigationParent: root
         }
     }
 
     Utils.StackViewExt {
         id: view
-
-        anchors.fill: parent
-        anchors.margins: VLCStyle.margin_normal
-
+        anchors.fill:parent
+        clip: true
         focus: true
-
         initialItem: medialib.gridView ? gridComponent : listComponent
-
         Connections {
             target: medialib
             onGridViewChanged: {
@@ -170,11 +190,11 @@ Utils.NavigableFocusScope {
                     view.replace(listComponent)
             }
         }
-    }
 
+    }
     Label {
         anchors.centerIn: parent
-        visible: delegateModel.items.count === 0
+        visible: videosDelegate.items.count === 0
         font.pixelSize: VLCStyle.fontHeight_xxlarge
         color: root.activeFocus ? VLCStyle.colors.accent : VLCStyle.colors.text
         text: qsTr("No tracks found")

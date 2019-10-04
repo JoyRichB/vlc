@@ -35,9 +35,6 @@
 
 #define COBJMACROS
 
-#define D3D_DecoderType     IUnknown
-#define D3D_DecoderDevice   IUnknown
-#define D3D_DecoderSurface  IUnknown
 #include "directx_va.h"
 
 #include "avcodec.h"
@@ -266,7 +263,7 @@ static const directx_va_mode_t DXVA_MODES[] = {
     { NULL, NULL, 0, NULL }
 };
 
-static int FindVideoServiceConversion(vlc_va_t *, directx_sys_t *, const es_format_t *, const AVCodecContext *);
+static int FindVideoServiceConversion(vlc_va_t *, const directx_sys_t *, const es_format_t *, video_format_t *fmt_out, const AVCodecContext *, GUID *found_guid);
 
 char *directx_va_GetDecoderName(const GUID *guid)
 {
@@ -282,15 +279,10 @@ char *directx_va_GetDecoderName(const GUID *guid)
 }
 
 /* */
-int directx_va_Setup(vlc_va_t *va, directx_sys_t *dx_sys, const AVCodecContext *avctx,
-                     const es_format_t *fmt, int flag_xbox)
+int directx_va_Setup(vlc_va_t *va, const directx_sys_t *dx_sys, const AVCodecContext *avctx,
+                     const es_format_t *fmt, int flag_xbox,
+                     video_format_t *fmt_out, unsigned *surfaces, GUID *found_guid)
 {
-    /* */
-    if (FindVideoServiceConversion(va, dx_sys, fmt, avctx)) {
-        msg_Err(va, "FindVideoServiceConversion failed");
-        return VLC_EGENERIC;
-    }
-
     int surface_alignment = 16;
     unsigned surface_count = 2;
 
@@ -326,22 +318,34 @@ int directx_va_Setup(vlc_va_t *va, directx_sys_t *dx_sys, const AVCodecContext *
     if ( avctx->active_thread_type & FF_THREAD_FRAME )
         surface_count += avctx->thread_count;
 
-    int err = va_pool_SetupDecoder(va, &dx_sys->va_pool, avctx, surface_count, surface_alignment);
-    if (err != VLC_SUCCESS)
-        return err;
-    if (dx_sys->can_extern_pool)
-        return VLC_SUCCESS;
-    return va_pool_SetupSurfaces(va, &dx_sys->va_pool, surface_count);
-}
+    if (avctx->coded_width <= 0 || avctx->coded_height <= 0)
+        return VLC_EGENERIC;
 
-void directx_va_Close(vlc_va_t *va, directx_sys_t *dx_sys)
-{
-    va_pool_Close(va, &dx_sys->va_pool);
-}
+    assert((surface_alignment & (surface_alignment - 1)) == 0); /* power of 2 */
+#define ALIGN(x, y) (((x) + ((y) - 1)) & ~((y) - 1))
+    int surface_width  = ALIGN(avctx->coded_width,  surface_alignment);
+    int surface_height = ALIGN(avctx->coded_height, surface_alignment);
 
-int directx_va_Open(vlc_va_t *va, directx_sys_t *dx_sys)
-{
-    return va_pool_Open(va, &dx_sys->va_pool);
+    if (avctx->coded_width != surface_width || avctx->coded_height != surface_height)
+        msg_Warn( va, "surface dimensions (%dx%d) differ from avcodec dimensions (%dx%d)",
+                  surface_width, surface_height,
+                  avctx->coded_width, avctx->coded_height);
+
+    *fmt_out = fmt->video;
+    fmt_out->i_width  = surface_width;
+    fmt_out->i_height = surface_height;
+
+    /* FIXME transmit a video_format_t by VaSetup directly */
+    fmt_out->i_frame_rate      = avctx->framerate.num;
+    fmt_out->i_frame_rate_base = avctx->framerate.den;
+
+    /* */
+    if (FindVideoServiceConversion(va, dx_sys, fmt, fmt_out, avctx, found_guid)) {
+        msg_Err(va, "FindVideoServiceConversion failed");
+        return VLC_EGENERIC;
+    }
+    *surfaces = surface_count;
+    return VLC_SUCCESS;
 }
 
 static bool profile_supported(const directx_va_mode_t *mode, const es_format_t *fmt,
@@ -381,8 +385,9 @@ static bool profile_supported(const directx_va_mode_t *mode, const es_format_t *
 /**
  * Find the best suited decoder mode GUID and render format.
  */
-static int FindVideoServiceConversion(vlc_va_t *va, directx_sys_t *dx_sys,
-                                      const es_format_t *fmt, const AVCodecContext *avctx)
+static int FindVideoServiceConversion(vlc_va_t *va, const directx_sys_t *dx_sys,
+                                      const es_format_t *fmt, video_format_t *fmt_out, const AVCodecContext *avctx,
+                                      GUID *found_guid)
 {
     input_list_t p_list = { 0 };
     int err = dx_sys->pf_get_input_list(va, &p_list);
@@ -429,9 +434,9 @@ static int FindVideoServiceConversion(vlc_va_t *va, directx_sys_t *dx_sys,
 
         /* */
         msg_Dbg(va, "Trying to use '%s' as input", mode->name);
-        if (dx_sys->pf_setup_output(va, mode->guid, &fmt->video)==VLC_SUCCESS)
+        if (dx_sys->pf_setup_output(va, mode->guid, fmt_out)==VLC_SUCCESS)
         {
-            dx_sys->input = *mode->guid;
+            *found_guid = *mode->guid;
             err = VLC_SUCCESS;
             break;
         }

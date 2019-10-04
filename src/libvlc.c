@@ -7,7 +7,7 @@
  *          Samuel Hocevar <sam@zoy.org>
  *          Gildas Bazin <gbazin@videolan.org>
  *          Derk-Jan Hartman <hartman at videolan dot org>
- *          Rémi Denis-Courmont <rem # videolan : org>
+ *          Rémi Denis-Courmont
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published by
@@ -398,9 +398,6 @@ void libvlc_InternalCleanup( libvlc_int_t *p_libvlc )
     if ( priv->p_thumbnailer )
         vlc_thumbnailer_Release( priv->p_thumbnailer );
 
-    if ( priv->p_media_library )
-        libvlc_MlRelease( priv->p_media_library );
-
     if( priv->media_source_provider )
         vlc_media_source_provider_Delete( priv->media_source_provider );
 
@@ -432,6 +429,9 @@ void libvlc_InternalCleanup( libvlc_int_t *p_libvlc )
 
     if (priv->main_playlist)
         vlc_playlist_Delete(priv->main_playlist);
+
+    if ( priv->p_media_library )
+        libvlc_MlRelease( priv->p_media_library );
 
     libvlc_InternalActionsClean( p_libvlc );
 
@@ -514,12 +514,6 @@ int vlc_MetadataRequest(libvlc_int_t *libvlc, input_item_t *item,
     if (unlikely(priv->parser == NULL))
         return VLC_ENOMEM;
 
-    if( i_options & META_REQUEST_OPTION_DO_INTERACT )
-    {
-        vlc_mutex_lock( &item->lock );
-        item->b_preparse_interact = true;
-        vlc_mutex_unlock( &item->lock );
-    }
     input_preparser_Push( priv->parser, item, i_options, cbs, cbs_userdata, timeout, id );
     return VLC_SUCCESS;
 
@@ -537,6 +531,7 @@ int libvlc_MetadataRequest(libvlc_int_t *libvlc, input_item_t *item,
                            int timeout, void *id)
 {
     libvlc_priv_t *priv = libvlc_priv(libvlc);
+    assert(i_options & META_REQUEST_OPTION_SCOPE_ANY);
 
     if (unlikely(priv->parser == NULL))
         return VLC_ENOMEM;
@@ -559,11 +554,13 @@ int libvlc_ArtRequest(libvlc_int_t *libvlc, input_item_t *item,
                       void *cbs_userdata)
 {
     libvlc_priv_t *priv = libvlc_priv(libvlc);
+    assert(i_options & META_REQUEST_OPTION_FETCH_ANY);
 
     if (unlikely(priv->parser == NULL))
         return VLC_ENOMEM;
 
-    input_preparser_fetcher_Push(priv->parser, item, i_options, cbs, cbs_userdata);
+    input_preparser_fetcher_Push(priv->parser, item, i_options,
+                                 cbs, cbs_userdata);
     return VLC_SUCCESS;
 }
 

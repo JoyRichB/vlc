@@ -82,9 +82,12 @@ Item {
     property int cover_large: 160 * scale;
     property int cover_xlarge: 192 * scale;
 
+    property int heightBar_xxxsmall: 2 * scale;
+    property int heightBar_xxsmall: 4 * scale;
     property int heightBar_xsmall: 8 * scale;
     property int heightBar_small: 16 * scale;
     property int heightBar_normal: 32 * scale;
+    property int heightBar_medium: 48 * scale;
     property int heightBar_large: 64 * scale;
     property int heightBar_xlarge: 128 * scale;
     property int heightBar_xxlarge: 256 * scale;
@@ -97,11 +100,37 @@ Item {
     property int widthSearchInput: 200 * scale;
     property int widthSortBox: 150 * scale;
     property int widthTeletext: 280 * scale;
+    property int widthExtendedSpacer: 128 * scale;
     property int heightInput: 22 * scale;
 
+    property int scrollbarWidth: 4 * scale;
+    property int scrollbarHeight: 100 * scale;
+
     property int selectedBorder: 2
+    property real video_normal_height: 160 * scale;
+    property real video_large_height: 200 * scale;
+    property real video_small_height: 80 * scale;
+    property real video_normal_width: video_normal_height * (16/10);
+    property real video_large_width: video_large_height * (16/10);
+    property real video_small_width: video_small_height * (16/10);
+
+    property real network_normal: 100 * scale;
 
     property int miniPlayerHeight: 60 * scale;
+
+    //combobox
+    property int combobox_width_small: 64 * scale
+    property int combobox_width_normal: 96 * scale
+    property int combobox_width_large: 128 * scale
+
+    property int combobox_height_small: 16 * scale
+    property int combobox_height_normal: 24 * scale
+    property int combobox_height_large: 30 * scale
+
+    //button
+    property int button_width_small: 64 * scale
+    property int button_width_normal: 96 * scale
+    property int button_width_large: 128 * scale
 
     //timings
     property int delayToolTipAppear: 500;

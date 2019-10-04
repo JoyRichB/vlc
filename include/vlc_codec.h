@@ -53,6 +53,8 @@ struct decoder_owner_callbacks
 
             /* cf. decoder_NewPicture, can be called from any decoder thread */
             picture_t*  (*buffer_new)( decoder_t * );
+            /* cf. decoder_AbortPictures */
+            void        (*abort_pictures)( decoder_t *, bool b_abort );
             /* cf.decoder_QueueVideo */
             void        (*queue)( decoder_t *, picture_t * );
             /* cf.decoder_QueueCC */
@@ -491,6 +493,7 @@ enum vlc_decoder_device_type
     VLC_DECODER_DEVICE_DXVA2,
     VLC_DECODER_DEVICE_D3D11VA,
     VLC_DECODER_DEVICE_AWINDOW,
+    VLC_DECODER_DEVICE_NVDEC,
     VLC_DECODER_DEVICE_MMAL,
 };
 
@@ -522,9 +525,10 @@ typedef struct vlc_decoder_device
      * The type of pointer will depend of the type:
      * VAAPI: VADisplay
      * VDPAU: vdp_t *
-     * DXVA2: IDirect3DDevice9*
-     * D3D11VA: ID3D11DeviceContext*
+     * DXVA2: d3d9_decoder_device_t*
+     * D3D11VA: d3d11_decoder_device_t*
      * AWindow: android AWindowHandler*
+     * NVDEC: decoder_device_nvdec_t*
      * MMAL: MMAL_PORT_T*
      */
     void *opaque;

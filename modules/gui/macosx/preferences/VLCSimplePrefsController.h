@@ -83,7 +83,6 @@
 @property (readwrite, weak) IBOutlet NSTextField *hotkeysLabel;
 @property (readwrite, weak) IBOutlet NSTableView *hotkeys_listbox;
 @property (readwrite, weak) IBOutlet NSButton *hotkeys_mediakeysCheckbox;
-@property (readwrite, weak) IBOutlet NSButton *hotkeys_dimKeyboardCheckbox;
 
 // input pane
 @property (readwrite, strong) IBOutlet NSView *inputView;
@@ -148,7 +147,8 @@
 @property (readwrite, weak) IBOutlet NSPopUpButton *osd_font_colorPopup;
 @property (readwrite, weak) IBOutlet NSTextField *osd_font_colorLabel;
 @property (readwrite, weak) IBOutlet NSTextField *osd_fontTextField;
-@property (readwrite, weak) IBOutlet NSPopUpButton *osd_font_sizePopup;
+@property (readwrite, weak) IBOutlet NSSlider *osd_font_sizeSlider;
+@property (readwrite, weak) IBOutlet NSTextField *osd_font_sizeTextField;
 @property (readwrite, weak) IBOutlet NSTextField *osd_font_sizeLabel;
 @property (readwrite, weak) IBOutlet NSTextField *osd_fontLabel;
 @property (readwrite, weak) IBOutlet NSBox *osd_langBox;

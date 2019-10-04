@@ -21,6 +21,7 @@ import QtQuick.Controls 2.4
 import QtQuick.Layouts 1.3
 
 import "qrc:///utils/" as Utils
+import "qrc:///player/" as Player
 import "qrc:///style/"
 import "qrc:///menus/" as Menus
 
@@ -36,51 +37,17 @@ Utils.NavigableFocusScope {
         ColumnLayout {
             anchors.fill: parent
 
-            MenuBar {
-                Menus.MediaMenu { title: qsTr("&Media") }
-                Menus.PlaybackMenu { title: qsTr("&Playback") }
-                Menus.AudioMenu { title: qsTr("&Audio") }
-                Menus.VideoMenu { title: qsTr("&Video") }
-                Menus.SubtitleMenu { title: qsTr("&Subtitle") }
-                Menus.ToolsMenu { title: qsTr("&Tools") }
-                Menus.ViewMenu { title: qsTr("V&iew") }
-                Menus.HelpMenu { title: qsTr("&Help") }
-
+            Menus.MainMenubar {
                 Layout.fillWidth: true
             }
-
-            //Rectangle {
-            //    color: VLCStyle.colors.banner
-            //    Layout.fillWidth: true
-            //    Layout.preferredHeight: VLCStyle.icon_normal + VLCStyle.margin_small
-            //
-            //    RowLayout {
-            //        anchors.fill: parent
-            //
-            //        Item {
-            //            //spacer
-            //            Layout.fillWidth: true
-            //        }
-            //
-            //        Utils.IconToolButton {
-            //            id: menu_selector
-            //
-            //            size: VLCStyle.icon_normal
-            //            text: VLCIcons.menu
-            //
-            //            onClicked: mainMenu.openBelow(this)
-            //
-            //            Menus.MainMenu {
-            //                id: mainMenu
-            //                onClosed: menu_selector.forceActiveFocus()
-            //            }
-            //        }
-            //    }
-            //}
 
             PlaylistListView {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+            }
+
+            Player.MiniPlayer {
+                Layout.fillWidth: true
             }
         }
 

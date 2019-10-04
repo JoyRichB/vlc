@@ -70,6 +70,7 @@ libqt_plugin_la_SOURCES = \
 	gui/qt/dialogs/help.cpp gui/qt/dialogs/help.hpp \
 	gui/qt/dialogs/gototime.cpp gui/qt/dialogs/gototime.hpp \
 	gui/qt/dialogs/toolbar.cpp gui/qt/dialogs/toolbar.hpp \
+	gui/qt/dialogs/toolbareditor.cpp gui/qt/dialogs/toolbareditor.hpp \
 	gui/qt/dialogs/open.cpp gui/qt/dialogs/open.hpp \
 	gui/qt/dialogs/openurl.cpp gui/qt/dialogs/openurl.hpp \
 	gui/qt/dialogs/vlm.cpp gui/qt/dialogs/vlm.hpp \
@@ -110,6 +111,10 @@ libqt_plugin_la_SOURCES = \
 	gui/qt/components/recent_media_model.hpp \
 	gui/qt/components/settings.cpp \
 	gui/qt/components/settings.hpp \
+	gui/qt/components/audio_device_model.cpp  \
+	gui/qt/components/audio_device_model.hpp \
+	gui/qt/components/mediacenter/ml_folders_model.hpp  \
+	gui/qt/components/mediacenter/ml_folders_model.cpp \
 	gui/qt/components/voutwindow/videosurface.cpp \
 	gui/qt/components/voutwindow/videosurface.hpp \
 	gui/qt/components/voutwindow/qvoutwindow.cpp \
@@ -156,6 +161,8 @@ libqt_plugin_la_SOURCES = \
 	gui/qt/components/mediacenter/mlvideo.cpp \
 	gui/qt/components/mediacenter/mlvideomodel.cpp \
 	gui/qt/components/mediacenter/mlvideomodel.hpp \
+	gui/qt/components/mediacenter/mlrecentsvideomodel.cpp \
+	gui/qt/components/mediacenter/mlrecentsvideomodel.hpp \
 	gui/qt/components/playlist/media.hpp \
 	gui/qt/components/playlist/playlist_common.cpp \
 	gui/qt/components/playlist/playlist_common.hpp \
@@ -238,6 +245,7 @@ nodist_libqt_plugin_la_SOURCES = \
 	gui/qt/dialogs/help.moc.cpp \
 	gui/qt/dialogs/gototime.moc.cpp \
 	gui/qt/dialogs/toolbar.moc.cpp \
+	gui/qt/dialogs/toolbareditor.moc.cpp \
 	gui/qt/dialogs/open.moc.cpp \
 	gui/qt/dialogs/openurl.moc.cpp \
 	gui/qt/dialogs/podcast_configuration.moc.cpp \
@@ -264,6 +272,8 @@ nodist_libqt_plugin_la_SOURCES = \
 	gui/qt/components/recent_media_model.moc.cpp \
 	gui/qt/components/selectable_list_model.moc.cpp \
 	gui/qt/components/settings.moc.cpp \
+	gui/qt/components/audio_device_model.moc.cpp \
+	gui/qt/components/mediacenter/ml_folders_model.moc.cpp \
 	gui/qt/components/voutwindow/videosurface.moc.cpp \
 	gui/qt/components/voutwindow/qvoutwindow.moc.cpp \
 	gui/qt/components/voutwindow/qvoutwindowdummy.moc.cpp \
@@ -286,6 +296,7 @@ nodist_libqt_plugin_la_SOURCES = \
 	gui/qt/components/mediacenter/mlnetworkmodel.moc.cpp \
 	gui/qt/components/mediacenter/mlvideo.moc.cpp \
 	gui/qt/components/mediacenter/mlvideomodel.moc.cpp \
+	gui/qt/components/mediacenter/mlrecentsvideomodel.moc.cpp \
 	gui/qt/components/playlist/playlist_common.moc.cpp \
 	gui/qt/components/playlist/playlist_item.moc.cpp \
 	gui/qt/components/playlist/playlist_model.moc.cpp \
@@ -530,7 +541,13 @@ libqt_plugin_la_RES = \
 	gui/qt/pixmaps/update.svg \
 	gui/qt/pixmaps/valid.svg \
 	gui/qt/pixmaps/search_clear.svg \
-	gui/qt/pixmaps/lock.svg
+	gui/qt/pixmaps/lock.svg \
+	gui/qt/pixmaps/close.svg \
+	gui/qt/pixmaps/rename.svg \
+	gui/qt/pixmaps/del.svg \
+	gui/qt/pixmaps/ellipsis.svg \
+	gui/qt/pixmaps/topbar/grid.svg \
+	gui/qt/pixmaps/topbar/list.svg
 
 #QML and JS resources
 libqt_plugin_la_QML = \
@@ -542,16 +559,26 @@ libqt_plugin_la_QML = \
 	gui/qt/qml/player/TrackSelector.qml \
 	gui/qt/qml/player/ControlBar.qml \
 	gui/qt/qml/player/ControlButtons.qml \
+	gui/qt/qml/player/PlayerButtonsLayout.qml \
 	gui/qt/qml/player/VolumeWidget.qml \
 	gui/qt/qml/player/ModalControlBar.qml \
 	gui/qt/qml/player/SliderBar.qml \
 	gui/qt/qml/player/TeletextWidget.qml \
+	gui/qt/qml/player/MiniPlayer.qml \
+	gui/qt/qml/player/TopBar.qml \
 	gui/qt/qml/dialogs/Dialogs.qml \
 	gui/qt/qml/dialogs/ModalDialog.qml \
+	gui/qt/qml/dialogs/EditorDummyButton.qml \
+	gui/qt/qml/dialogs/EditorDNDDelegate.qml \
+	gui/qt/qml/dialogs/EditorDNDView.qml\
+	gui/qt/qml/dialogs/EditorTabButton.qml \
+	gui/qt/qml/dialogs/ToolbarEditorButtonList.qml \
+	gui/qt/qml/dialogs/ToolbarEditor.qml \
 	gui/qt/qml/utils/DNDLabel.qml \
 	gui/qt/qml/utils/ToolTipArea.qml \
-	gui/qt/qml/utils/Drawer.qml \
+	gui/qt/qml/utils/DrawerExt.qml \
 	gui/qt/qml/utils/GridItem.qml \
+	gui/qt/qml/utils/ContextButton.qml \
 	gui/qt/qml/utils/IconToolButton.qml \
 	gui/qt/qml/utils/ImageToolButton.qml \
 	gui/qt/qml/utils/TextToolButton.qml \
@@ -569,6 +596,11 @@ libqt_plugin_la_QML = \
 	gui/qt/qml/utils/SpinBoxExt.qml \
 	gui/qt/qml/utils/StackViewExt.qml \
 	gui/qt/qml/utils/ScanProgressBar.qml \
+	gui/qt/qml/utils/LabelSeparator.qml \
+	gui/qt/qml/utils/RoundButton.qml \
+	gui/qt/qml/utils/RoundImage.qml \
+	gui/qt/qml/utils/VideoQualityLabel.qml \
+	gui/qt/qml/utils/VideoProgressBar.qml \
         gui/qt/qml/utils/SearchBox.qml \
         gui/qt/qml/utils/SortControl.qml \
 	gui/qt/qml/menus/CheckableModelSubMenu.qml \
@@ -584,10 +616,13 @@ libqt_plugin_la_QML = \
 	gui/qt/qml/menus/ViewMenu.qml \
 	gui/qt/qml/menus/VideoMenu.qml \
 	gui/qt/qml/mediacenter/ArtistTopBanner.qml \
+	gui/qt/qml/mediacenter/AudioGridItem.qml \
 	gui/qt/qml/mediacenter/MCMainDisplay.qml \
 	gui/qt/qml/mediacenter/MCMusicDisplay.qml \
 	gui/qt/qml/mediacenter/MCVideoDisplay.qml \
+	gui/qt/qml/mediacenter/MCVideoListDisplay.qml \
 	gui/qt/qml/mediacenter/MCNetworkDisplay.qml \
+	gui/qt/qml/mediacenter/MCNetworksSectionSelectableDM.qml \
 	gui/qt/qml/mediacenter/MusicAlbumsDisplay.qml \
 	gui/qt/qml/mediacenter/MusicAlbumsGridExpandDelegate.qml \
 	gui/qt/qml/mediacenter/MusicArtistsDisplay.qml \
@@ -596,8 +631,11 @@ libqt_plugin_la_QML = \
 	gui/qt/qml/mediacenter/MusicTrackListDisplay.qml \
 	gui/qt/qml/mediacenter/NetworkDriveDisplay.qml \
 	gui/qt/qml/mediacenter/NetworkFileDisplay.qml \
+	gui/qt/qml/mediacenter/NetworkFileDisplayGrid.qml \
+	gui/qt/qml/mediacenter/NetworkDriveDisplayGrid.qml \
 	gui/qt/qml/mediacenter/NetworkListItem.qml \
-	gui/qt/qml/mediacenter/MiniPlayer.qml \
+	gui/qt/qml/mediacenter/VideoExpandableGrid.qml \
+	gui/qt/qml/mediacenter/VideoGridItem.qml \
 	gui/qt/qml/playlist/PlaylistListView.qml \
 	gui/qt/qml/playlist/PlaylistMainView.qml \
 	gui/qt/qml/playlist/PLItem.qml \

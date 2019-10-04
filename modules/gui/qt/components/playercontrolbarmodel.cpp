@@ -20,36 +20,48 @@
 #include "qt.hpp"
 #include "playercontrolbarmodel.hpp"
 
-#define MAIN_TB1_DEFAULT "67;68;37;65;19;22;0-2;23;20;65;35;7"
+#define MAIN_TB1_DEFAULT "20;21;65;17;3;0-2;1-2;4;18;65;33;7"
+#define MINI_TB_DEFAULT "17;3;0;1;4;18"
 
 PlayerControlBarModel::PlayerControlBarModel(QObject *_parent) : QAbstractListModel(_parent)
 {
+    configName = "MainPlayerToolbar";
+    defaultConfig = MAIN_TB1_DEFAULT;
 }
 
-void PlayerControlBarModel::loadConfig()
+void PlayerControlBarModel::saveConfig()
 {
-    p_intf = m_mainCtx->getIntf();
-    QString config = getSettings() ->value( "MainWindow/PlayerControlToolbar1", MAIN_TB1_DEFAULT )
+    getSettings()->setValue(configName,getConfig());
+}
+
+QString PlayerControlBarModel::getConfig()
+{
+    QString config="";
+    for (IconToolButton it: mButtons) {
+        config += QString::number(it.id);
+        if(it.size != WIDGET_NORMAL)
+            config += "-" + QString::number(it.size);
+        config += ";";
+    }
+    return config;
+}
+
+void PlayerControlBarModel::reloadConfig(QString config)
+{
+    beginResetModel();
+    mButtons.clear();
+    parseAndAdd(config);
+    endResetModel();
+}
+
+void PlayerControlBarModel::reloadModel()
+{
+    beginResetModel();
+    mButtons.clear();
+    QString config = getSettings() ->value( configName, defaultConfig )
                                             .toString();
     parseAndAdd(config);
-}
-
-QVector<PlayerControlBarModel::IconToolButton> PlayerControlBarModel::buttons() const
-{
-    return mButtons;
-}
-
-bool PlayerControlBarModel::setButtonAt(int index, const IconToolButton &button)
-{
-    if(index < 0 || index >= mButtons.size())
-        return false;
-    const IconToolButton &oldButton = mButtons.at(index);
-
-    if (button.size == oldButton.size && button.id == oldButton.id)
-        return false;
-
-    mButtons[index] = button;
-    return true;
+    endResetModel();
 }
 
 void PlayerControlBarModel::parseAndAdd(QString &config)
@@ -92,12 +104,10 @@ void PlayerControlBarModel::parseAndAdd(QString &config)
 
 int PlayerControlBarModel::rowCount(const QModelIndex &parent) const
 {
-    // For list models only the root node (an invalid parent) should return the list's size. For all
-    // other (valid) parents, rowCount() should return 0 so that it does not become a tree model.
     if (parent.isValid() )
         return 0;
 
-    return buttons().size();
+    return mButtons.size();
 }
 
 QVariant PlayerControlBarModel::data(const QModelIndex &index, int role) const
@@ -108,11 +118,11 @@ QVariant PlayerControlBarModel::data(const QModelIndex &index, int role) const
     const IconToolButton button = mButtons.at(index.row());
 
     switch (role) {
-        case ID_ROLE:
-            return QVariant(button.id);
+    case ID_ROLE:
+        return QVariant(button.id);
 
-        case SIZE_ROLE:
-            return QVariant(button.size);
+    case SIZE_ROLE:
+        return QVariant(button.size);
     }
     return QVariant();
 }
@@ -121,11 +131,11 @@ bool PlayerControlBarModel::setData(const QModelIndex &index, const QVariant &va
 {
     IconToolButton button = mButtons.at(index.row());
     switch (role) {
-        case ID_ROLE:
-            button.id = value.toInt();
-            break;
-        case SIZE_ROLE:
-            button.size = value.toInt();
+    case ID_ROLE:
+        button.id = value.toInt();
+        break;
+    case SIZE_ROLE:
+        button.size = value.toInt();
     }
 
     if (setButtonAt(index.row(),button)) {
@@ -152,10 +162,62 @@ QHash<int, QByteArray> PlayerControlBarModel::roleNames() const
 
     return names;
 }
+bool PlayerControlBarModel::setButtonAt(int index, const IconToolButton &button)
+{
+    if(index < 0 || index >= mButtons.size())
+        return false;
+    const IconToolButton &oldButton = mButtons.at(index);
+
+    if (button.size == oldButton.size && button.id == oldButton.id)
+        return false;
+
+    mButtons[index] = button;
+    return true;
+}
 
 void PlayerControlBarModel::setMainCtx(QmlMainContext* ctx)
 {
+    if(ctx == nullptr && m_mainCtx == ctx)
+        return;
     m_mainCtx = ctx;
-    loadConfig();
+    p_intf = m_mainCtx->getIntf();
+    assert(p_intf != nullptr);
+    reloadModel();
     emit ctxChanged(ctx);
 }
+
+void PlayerControlBarModel::setConfigName(QString name)
+{
+    if(configName == name)
+        return;
+    configName = name;
+    if(configName == "MainPlayerToolbar")
+        defaultConfig = MAIN_TB1_DEFAULT;
+    else
+        defaultConfig = MINI_TB_DEFAULT;
+    if  (m_mainCtx)
+        reloadModel();
+    emit configNameChanged(name);
+}
+
+void PlayerControlBarModel::insert(int index, QVariantMap bdata)
+{
+    beginInsertRows(QModelIndex(),index,index);
+    mButtons.insert(index,{bdata.value("id").toInt(),bdata.value("size").toInt()});
+    endInsertRows();
+}
+void PlayerControlBarModel::move(int src, int dest)
+{
+    if(src == dest) return;
+    beginMoveRows(QModelIndex(),src,src,QModelIndex(),dest + (src < dest ? 1:0));
+    mButtons.move(src,dest);
+    endMoveRows();
+}
+
+void PlayerControlBarModel::remove(int index)
+{
+    beginRemoveRows(QModelIndex(),index,index);
+    mButtons.remove(index);
+    endRemoveRows();
+}
+

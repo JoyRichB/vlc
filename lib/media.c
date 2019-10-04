@@ -282,7 +282,7 @@ static void send_parsed_changed( libvlc_media_t *p_md,
     }
 
     p_md->parsed_status = new_status;
-    if( p_md->parsed_status == libvlc_media_parsed_status_skipped )
+    if( p_md->parsed_status != libvlc_media_parsed_status_done )
         p_md->has_asked_preparse = false;
 
     vlc_mutex_unlock( &p_md->parsed_lock );
@@ -793,22 +793,18 @@ static int media_parse(libvlc_media_t *media, bool b_async,
         input_item_meta_request_option_t parse_scope = META_REQUEST_OPTION_SCOPE_LOCAL;
         int ret;
 
-        /* Ignore libvlc_media_fetch_local flag since local art will be fetched
-         * by libvlc_MetadataRequest */
-        if (parse_flag & libvlc_media_fetch_network)
-        {
-            ret = libvlc_ArtRequest(libvlc, item,
-                                    META_REQUEST_OPTION_SCOPE_NETWORK,
-                                    NULL, NULL);
-            if (ret != VLC_SUCCESS)
-                return ret;
-        }
-
         if (parse_flag & libvlc_media_parse_network)
             parse_scope |= META_REQUEST_OPTION_SCOPE_NETWORK;
+        if (parse_flag & libvlc_media_fetch_local)
+            parse_scope |= META_REQUEST_OPTION_FETCH_LOCAL;
+        if (parse_flag & libvlc_media_fetch_network)
+            parse_scope |= META_REQUEST_OPTION_FETCH_NETWORK;
         if (parse_flag & libvlc_media_do_interact)
             parse_scope |= META_REQUEST_OPTION_DO_INTERACT;
-        ret = libvlc_MetadataRequest(libvlc, item, parse_scope, &input_preparser_callbacks, media, timeout, media);
+
+        ret = libvlc_MetadataRequest(libvlc, item, parse_scope,
+                                     &input_preparser_callbacks, media,
+                                     timeout, media);
         if (ret != VLC_SUCCESS)
             return ret;
     }

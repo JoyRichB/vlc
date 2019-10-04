@@ -118,56 +118,73 @@ bool MLNetworkModel::setData( const QModelIndex& idx, const QVariant& value, int
     return res == VLC_SUCCESS;
 }
 
-void MLNetworkModel::setContext(QmlMainContext* ctx, NetworkTreeItem parentTree )
+void MLNetworkModel::setCtx(QmlMainContext* ctx)
 {
-    assert(!m_ctx);
     if (ctx) {
         m_ctx = ctx;
         m_ml = vlc_ml_instance_get( m_ctx->getIntf() );
-        m_treeItem = parentTree;
+    }
+    if (m_ctx && m_hasTree) {
         initializeMediaSources();
     }
+    emit ctxChanged();
+}
+
+void MLNetworkModel::setTree(QVariant parentTree)
+{
+    if (parentTree.canConvert<NetworkTreeItem>())
+        m_treeItem = parentTree.value<NetworkTreeItem>();
+    else
+        m_treeItem = NetworkTreeItem();
+    m_hasTree = true;
+    if (m_ctx && m_hasTree) {
+        initializeMediaSources();
+    }
+    emit treeChanged();
+}
+void MLNetworkModel::setIsOnProviderList(bool b)
+{
+    m_isOnProviderList = b;
+
+    emit isOnProviderListChanged();
+}
+void MLNetworkModel::setSdSource(QString s)
+{
+    beginResetModel();
+    m_sdSource = s;
+    emit sdSourceChanged();
+    endResetModel();
 }
 
 bool MLNetworkModel::initializeMediaSources()
 {
     auto libvlc = vlc_object_instance(m_ctx->getIntf());
 
-    // When listing all found devices, we have no specified media and no parent,
-    // but we can't go up a level in this case.
-    // Otherwise, we can have a parent (when listing a subdirectory of a device)
-    // or simply a media (that represents the device root folder)
-    if ( m_treeItem.media != nullptr )
-    {
-        Item item;
-
-        item.name = QString::fromUtf8(u8"⮤"); //arrow up ^_
-        if ( m_treeItem.parent != nullptr )
-        {
-            QUrl parentMrl = QUrl{ m_treeItem.parent->psz_uri };
-            item.mainMrl = parentMrl;
-            item.mrls = {parentMrl};
-            item.protocol = parentMrl.scheme();
-        }
-        item.indexed = false;
-        item.type = TYPE_DIR;
-        item.canBeIndexed = false;
-        item.tree.source = m_treeItem.source;
-        item.tree.media = m_treeItem.parent;
-
-        beginInsertRows( {}, 0, 0 );
-        m_items.push_back(item);
-        endInsertRows();
+    m_listeners.clear();
+    if (!m_items.empty()) {
+        beginResetModel();
+        m_items.clear();
+        endResetModel();
     }
 
     if ( m_treeItem.media == nullptr )
     {
         // If there's no target media, we're handling device discovery
+        setIsOnProviderList( true );
         auto provider = vlc_media_source_provider_Get( libvlc );
 
         using SourceMetaPtr = std::unique_ptr<vlc_media_source_meta_list_t,
                                               decltype( &vlc_media_source_meta_list_Delete )>;
-        SourceMetaPtr providerList( vlc_media_source_provider_List( provider, SD_CAT_LAN ),
+
+        services_discovery_category_e cat = SD_CAT_LAN;
+        if ( m_sdSource == "SD_CAT_DEVICES" )
+            cat = SD_CAT_DEVICES;
+        else if ( m_sdSource == "SD_CAT_MYCOMPUTER" )
+            cat = SD_CAT_MYCOMPUTER;
+        else if ( m_sdSource == "SD_CAT_INTERNET" )
+            cat = SD_CAT_INTERNET;
+
+        SourceMetaPtr providerList( vlc_media_source_provider_List( provider, cat ),
                                     &vlc_media_source_meta_list_Delete );
         if ( providerList == nullptr )
             return false;
@@ -190,11 +207,12 @@ bool MLNetworkModel::initializeMediaSources()
         return m_listeners.empty() == false;
     }
     // Otherwise, we're listing content from a device or folder
+    setIsOnProviderList( false );
     auto tree = m_treeItem.source->tree;
     std::unique_ptr<SourceListener> l{ new SourceListener( m_treeItem.source, this ) };
     if ( l->listener == nullptr )
         return false;
-    vlc_media_tree_Preparse( tree, libvlc, m_treeItem.media );
+    vlc_media_tree_Preparse( tree, libvlc, m_treeItem.media.get() );
     m_listeners.push_back( std::move( l ) );
 
     return true;
@@ -206,7 +224,7 @@ void MLNetworkModel::onItemCleared( MediaSourcePtr mediaSource, input_item_node_
     {
         input_item_node_t *res;
         input_item_node_t *parent;
-        if ( vlc_media_tree_Find( m_treeItem.source->tree, m_treeItem.media,
+        if ( vlc_media_tree_Find( m_treeItem.source->tree, m_treeItem.media.get(),
                                           &res, &parent ) == false )
             return;
         refreshMediaList( std::move( mediaSource ), res->pp_children, res->i_children, true );
@@ -221,7 +239,7 @@ void MLNetworkModel::onItemAdded( MediaSourcePtr mediaSource, input_item_node_t*
 {
     if ( m_treeItem.media == nullptr )
         refreshDeviceList( std::move( mediaSource ), children, count, false );
-    else if ( parent->p_item == m_treeItem.media )
+    else if ( parent->p_item == m_treeItem.media.get() )
         refreshMediaList( std::move( mediaSource ), children, count, false );
 }
 
@@ -274,13 +292,12 @@ void MLNetworkModel::refreshMediaList( MediaSourcePtr mediaSource,
         item.name = it->psz_name;
         item.protocol = "";
         item.indexed = false;
-        item.type = (it->i_type == ITEM_TYPE_DIRECTORY || it->i_type == ITEM_TYPE_NODE) ?
-                TYPE_DIR : TYPE_FILE;
-        item.mainMrl = item.type == TYPE_DIR ?
+        item.type = static_cast<ItemType>(it->i_type);
+        item.mainMrl = (item.type == TYPE_DIRECTORY || item.type == TYPE_NODE) ?
                     QUrl::fromEncoded(QByteArray(it->psz_uri).append('/')) :
                     QUrl::fromEncoded(it->psz_uri);
 
-        item.canBeIndexed = canBeIndexed( item.mainMrl );
+        item.canBeIndexed = canBeIndexed( item.mainMrl , item.type );
         item.mediaSource = mediaSource;
 
         if ( item.canBeIndexed == true )
@@ -289,7 +306,7 @@ void MLNetworkModel::refreshMediaList( MediaSourcePtr mediaSource,
                                     &item.indexed ) != VLC_SUCCESS )
                 item.indexed = false;
         }
-        item.tree = NetworkTreeItem{ mediaSource, it, m_treeItem.media };
+        item.tree = NetworkTreeItem( mediaSource, it, m_treeItem.media.get() );
         items->push_back( std::move( item ) );
     }
     callAsync([this, clear, items]() {
@@ -297,8 +314,7 @@ void MLNetworkModel::refreshMediaList( MediaSourcePtr mediaSource,
         if ( clear == true )
         {
             beginResetModel();
-            // Keep the 'go to parent' item
-            m_items.erase( begin( m_items ) + 1, end( m_items ) );
+            m_items.erase( begin( m_items ) , end( m_items ) );
         }
         else
             beginInsertRows( {}, m_items.size(), m_items.size() + items->size() - 1 );
@@ -329,8 +345,8 @@ void MLNetworkModel::refreshDeviceList( MediaSourcePtr mediaSource, input_item_n
         item.name = qfu(children[i]->p_item->psz_name);
         item.mrls.push_back( item.mainMrl );
         item.indexed = false;
-        item.canBeIndexed = canBeIndexed( item.mainMrl );
-        item.type = TYPE_SHARE;
+        item.type = static_cast<ItemType>( children[i]->p_item->i_type );
+        item.canBeIndexed = canBeIndexed( item.mainMrl , item.type );
         item.protocol = item.mainMrl.scheme();
         item.tree = NetworkTreeItem{ mediaSource,
                                      children[i]->p_item,
@@ -343,11 +359,7 @@ void MLNetworkModel::refreshDeviceList( MediaSourcePtr mediaSource, input_item_n
                         item.mainMrl.scheme() == i.mainMrl.scheme();
             });
             if ( it != end( m_items ) )
-            {
-                (*it).mrls.push_back( item.mainMrl );
-                filterMainMrl( ( *it ), std::distance( begin( m_items ), it ) );
                 return;
-            }
             if ( item.canBeIndexed == true )
             {
                 if ( vlc_ml_is_indexed( m_ml, qtu( item.mainMrl.toString( QUrl::None ) ),
@@ -404,42 +416,7 @@ void MLNetworkModel::SourceListener::onItemRemoved( vlc_media_tree_t *, input_it
     self->model->onItemRemoved( self->source, children, count );
 }
 
-bool MLNetworkModel::canBeIndexed(const QUrl& url)
+bool MLNetworkModel::canBeIndexed(const QUrl& url , ItemType itemType )
 {
-    return url.scheme() == "smb" || url.scheme() == "ftp";
+    return itemType != ITEM_TYPE_FILE && (url.scheme() == "smb" || url.scheme() == "ftp");
 }
-
-void MLNetworkModel::filterMainMrl( MLNetworkModel::Item& item , size_t itemIndex )
-{
-    assert( item.mrls.empty() == false );
-    if ( item.mrls.size() == 1 )
-        return;
-
-    //maybe we should rather use QHostAddress, but this adds a dependency uppon QNetwork that we don't require at the moment
-    //https://stackoverflow.com/a/17871737/148173
-    QRegExp ipv4("((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])");
-    QRegExp ipv6("(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))");
-
-    // We're looking for the mrl which is a (netbios) name, not an IP
-    for ( const auto& mrl : item.mrls )
-    {
-        if (mrl.isEmpty() == true || mrl.scheme() == "")
-            continue;
-
-        QString host = mrl.host();
-        if (ipv4.exactMatch(host) || ipv6.exactMatch(host))
-            continue;
-
-        item.mainMrl = mrl;
-        item.canBeIndexed = canBeIndexed( mrl  );
-        auto idx = index( static_cast<int>( itemIndex ), 0 );
-        emit dataChanged( idx, idx, { NETWORK_MRL, NETWORK_CANINDEX } );
-        return;
-    }
-    // If we can't get a cannonical name, don't attempt to index this as we
-    // would fail to get a unique associated device in the medialibrary
-    item.canBeIndexed = false;
-    auto idx = index( static_cast<int>( itemIndex ), 0 );
-    emit dataChanged( idx, idx, { NETWORK_CANINDEX } );
-}
-

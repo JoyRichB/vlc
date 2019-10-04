@@ -39,6 +39,9 @@ Utils.NavigableFocusScope {
     property alias parentId: delegateModel.parentId
     property var currentIndex: view.currentItem.currentIndex
 
+
+    property Component header: Item{}
+
     Utils.SelectableDelegateModel {
         id: delegateModel
         property alias parentId: albumModelId.parentId
@@ -55,7 +58,7 @@ Utils.NavigableFocusScope {
             Utils.ListItem {
                 Package.name: "list"
                 width: root.width
-                height: VLCStyle.icon_normal
+                height: VLCStyle.icon_normal + VLCStyle.margin_small
 
                 color: VLCStyle.colors.getBgColor(element.DelegateModel.inSelected, this.hovered, this.activeFocus)
 
@@ -116,57 +119,30 @@ Utils.NavigableFocusScope {
             cellWidth: VLCStyle.cover_normal + VLCStyle.margin_small
             cellHeight: VLCStyle.cover_normal + VLCStyle.fontHeight_normal * 2
 
-            gridDelegate: Utils.GridItem {
-                property variant delegateModelItem: ({
-                    model: ({}),
-                    itemsIndex: 0,
-                    inSelected: false
-                })
+            headerDelegate: root.header
 
-                shiftX: view.currentItem.shiftX(delegateModelItem.itemsIndex)
-                image: delegateModelItem.model.cover || VLCStyle.noArtAlbum
-                title: delegateModelItem.model.title || qsTr("Unknown title")
-                subtitle: delegateModelItem.model.main_artist || qsTr("Unknown artist")
-                selected: delegateModelItem.inSelected
+            delegate: AudioGridItem {
+                id: audioGridItem
+
                 onItemClicked : {
-                    delegateModel.updateSelection( modifier , view.currentItem.currentIndex, delegateModelItem.itemsIndex)
-                    view.currentItem.currentIndex = delegateModelItem.itemsIndex
-                    //view.currentItem.forceActiveFocus()
-                    view._switchExpandItem( delegateModelItem.itemsIndex )
-
+                    delegateModel.updateSelection( modifier , root.currentIndex, index)
+                    root.currentIndex = index
+                    view._switchExpandItem( index )
                 }
-                onPlayClicked: medialib.addAndPlay( delegateModelItem.model.id )
-                onAddToPlaylistClicked : medialib.addToPlaylist( delegateModelItem.model.id )
             }
 
-            expandDelegate:  Rectangle {
+            expandDelegate: MusicAlbumsGridExpandDelegate {
                 id: expandDelegateId
-                implicitHeight: albumDetail.implicitHeight
                 width: root.width
-                color: VLCStyle.colors.bgAlt
-                property int currentId: -1
-                property alias model : albumDetail.model
-                property alias currentItemY: albumDetail.currentItemY
-                property alias currentItemHeight: albumDetail.currentItemHeight
 
-                onActiveFocusChanged: {
-                    if (activeFocus)
-                        albumDetail.forceActiveFocus()
-                }
+                navigationParent: root
+                navigationCancel:  function() {  gridView_id.retract() }
+                navigationUp: function() {  gridView_id.retract() }
+                navigationDown: function() {}
 
-                MusicAlbumsGridExpandDelegate {
-                    id: albumDetail
-                    anchors.fill: parent
-                    onActionCancel:  gridView_id.retract()
-                    onActionUp:  gridView_id.retract()
-                    onActionDown: gridView_id.retract()
-                    onActionLeft: root.actionLeft(index)
-                    onActionRight: root.actionRight(index)
-                }
             }
 
             model: delegateModel
-            modelTop: delegateModel.parts.gridTop
             modelCount: delegateModel.items.count
 
             onActionAtIndex: {
@@ -179,11 +155,7 @@ Utils.NavigableFocusScope {
             onSelectAll: delegateModel.selectAll()
             onSelectionUpdated: delegateModel.updateSelection( keyModifiers, oldIndex, newIndex )
 
-            onActionLeft: root.actionLeft(index)
-            onActionRight: root.actionRight(index)
-            onActionDown: root.actionDown(index)
-            onActionUp: root.actionUp(index)
-            onActionCancel: root.actionCancel(index)
+            navigationParent: root
         }
     }
 
@@ -192,6 +164,8 @@ Utils.NavigableFocusScope {
         /* ListView */
         Utils.KeyNavigableListView {
             id: listView_id
+
+            header: root.header
 
             interactive: root.interactive
 
@@ -204,11 +178,7 @@ Utils.NavigableFocusScope {
             onSelectAll: delegateModel.selectAll()
             onSelectionUpdated: delegateModel.updateSelection( keyModifiers, oldIndex, newIndex )
 
-            onActionLeft: root.actionLeft(index)
-            onActionRight: root.actionRight(index)
-            onActionDown: root.actionDown(index)
-            onActionUp: root.actionUp(index)
-            onActionCancel: root.actionCancel(index)
+            navigationParent: root
         }
     }
 

@@ -353,8 +353,8 @@ player_on_position_changed(vlc_player_t *player,
 }
 
 static void
-player_aout_on_volume_changed(vlc_player_t *player, float volume, void *data)
-{ VLC_UNUSED(player);
+player_aout_on_volume_changed(audio_output_t *aout, float volume, void *data)
+{ VLC_UNUSED(aout);
     intf_thread_t *p_intf = data;
     vlc_mutex_lock(&p_intf->p_sys->status_lock);
     msg_rc(STATUS_CHANGE "( audio volume: %ld )",
@@ -1110,8 +1110,8 @@ static void AudioDevice(intf_thread_t *intf, char const *cmd,
             if (!strcmp(cur.psz_string, ids[i]))
                 break;
         if (i < n)
-            vlc_player_vout_OSDMessage(player,
-                                       _("Audio device: %s"), names[i]);
+            vlc_player_osd_Message(player,
+                                   _("Audio device: %s"), names[i]);
     }
     else
     {

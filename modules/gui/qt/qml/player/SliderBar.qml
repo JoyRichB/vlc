@@ -83,8 +83,8 @@ Slider {
         onPositionChanged: control.value = player.position
     }
 
-    height: control.barHeight + VLCStyle.fontHeight_normal + VLCStyle.margin_xxsmall * 2
-    implicitHeight: control.barHeight + VLCStyle.fontHeight_normal + VLCStyle.margin_xxsmall * 2
+    height: control.barHeight
+    implicitHeight: control.barHeight
 
     topPadding: 0
     leftPadding: 0
@@ -98,7 +98,8 @@ Slider {
         width: control.availableWidth
         implicitHeight: control.implicitHeight
         height: implicitHeight
-        color: "transparent"
+        color:  VLCStyle.colors.setColorAlpha( VLCStyle.colors.playerFg, 0.7 )
+        radius: implicitHeight
 
         MouseArea {
             id: sliderRectMouseArea
@@ -209,30 +210,6 @@ Slider {
                 PauseAnimation {
                     duration: 500
                 }
-            }
-        }
-
-        Text {
-            text: player.time.toString()
-            color: VLCStyle.colors.text
-            font.pixelSize: VLCStyle.fontSize_normal
-            anchors {
-                bottom: parent.bottom
-                bottomMargin: VLCStyle.margin_xxsmall
-                left: parent.left
-                leftMargin: VLCStyle.margin_xxsmall
-            }
-        }
-
-        Text {
-            text: player.length.toString()
-            color: VLCStyle.colors.text
-            font.pixelSize: VLCStyle.fontSize_normal
-            anchors {
-                bottom: parent.bottom
-                bottomMargin: VLCStyle.margin_xxsmall
-                right: parent.right
-                rightMargin: VLCStyle.margin_xxsmall
             }
         }
 

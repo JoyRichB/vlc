@@ -112,6 +112,7 @@ filter_chain_IsEmpty
 filter_chain_MouseFilter
 filter_chain_NewVideo
 filter_chain_Reset
+filter_chain_Clear
 filter_chain_SubFilter
 filter_chain_VideoFilter
 filter_chain_VideoFlush
@@ -258,7 +259,6 @@ module_need
 module_provides
 module_unneed
 vlc_module_load
-vlc_module_unload
 vlc_memstream_open
 vlc_memstream_flush
 vlc_memstream_close
@@ -767,6 +767,8 @@ vlc_thumbnailer_Cancel
 vlc_thumbnailer_Release
 vlc_player_AddAssociatedMedia
 vlc_player_AddListener
+vlc_player_AddSmpteTimer
+vlc_player_AddTimer
 vlc_player_aout_AddListener
 vlc_player_aout_EnableFilter
 vlc_player_aout_GetVolume
@@ -820,10 +822,12 @@ vlc_player_Lock
 vlc_player_Navigate
 vlc_player_New
 vlc_player_NextVideoFrame
+vlc_player_osd_Message
 vlc_player_Pause
 vlc_player_program_Delete
 vlc_player_program_Dup
 vlc_player_RemoveListener
+vlc_player_RemoveTimer
 vlc_player_RestartEsId
 vlc_player_Resume
 vlc_player_SeekByPos
@@ -860,6 +864,8 @@ vlc_player_SetTeletextTransparency
 vlc_player_SetTrackCategoryEnabled
 vlc_player_Start
 vlc_player_Stop
+vlc_player_timer_point_GetNextIntervalDate
+vlc_player_timer_point_Interpolate
 vlc_player_title_list_GetAt
 vlc_player_title_list_GetCount
 vlc_player_title_list_Hold
@@ -874,7 +880,6 @@ vlc_player_vout_Hold
 vlc_player_vout_HoldAll
 vlc_player_vout_IsFullscreen
 vlc_player_vout_IsWallpaperModeEnabled
-vlc_player_vout_OSDMessage
 vlc_player_vout_RemoveListener
 vlc_player_vout_SetFullscreen
 vlc_player_vout_SetWallpaperModeEnabled

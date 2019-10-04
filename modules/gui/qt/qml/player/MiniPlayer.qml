@@ -59,30 +59,31 @@ Utils.NavigableFocusScope {
         RowLayout {
             anchors.fill: parent
 
-            Item {
+            Rectangle {
                 id: playingItemInfo
                 Layout.fillHeight: true
+                Layout.preferredWidth: playingItemInfoRow.implicitWidth
                 width: childrenRect.width
-
-                Rectangle {
-                    anchors.fill: parent
-                    visible: parent.activeFocus
-                    color: VLCStyle.colors.accent
-                    border.width: 0
-                    border.color: VLCStyle.colors.accent
-                }
+                focus: true
+                color: activeFocus ? VLCStyle.colors.accent :  "transparent"
 
                 MouseArea {
                     anchors.fill: parent
                     onClicked: history.push(["player"], History.Go)
                 }
 
+                Keys.onPressed: {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Space) {
+                        event.accepted = true
+                    }
+                }
                 Keys.onReleased: {
                     if (!event.accepted && (event.key === Qt.Key_Return || event.key === Qt.Key_Space))
                         history.push(["player"], History.Go)
                 }
 
                 Row {
+                    id: playingItemInfoRow
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
 
@@ -119,69 +120,52 @@ Utils.NavigableFocusScope {
                     }
                 }
 
-                KeyNavigation.right: randomBtn
+                KeyNavigation.right: buttonrow
             }
 
             Item {
                 Layout.fillWidth: true
             }
 
-            Row {
-                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                rightPadding: VLCStyle.margin_normal
+            PlayerButtonsLayout {
+                id: buttonrow
 
-                Utils.IconToolButton {
-                    id: randomBtn
-                    size: VLCStyle.icon_normal
-                    checked: mainPlaylistController.random
-                    text: VLCIcons.shuffle_on
-                    onClicked: mainPlaylistController.toggleRandom()
-                    KeyNavigation.right: prevBtn
-                }
+                model: miniPlayerModel
+                defaultSize: VLCStyle.icon_normal
 
-                Utils.IconToolButton {
-                    id: prevBtn
-                    size: VLCStyle.icon_normal
-                    text: VLCIcons.previous
-                    onClicked: mainPlaylistController.prev()
-                    KeyNavigation.right: playBtn
-                }
+                Layout.alignment: Qt.AlignVCenter
+                Layout.rightMargin: VLCStyle.margin_normal
+                Layout.preferredWidth: buttonrow.implicitWidth
+                Layout.preferredHeight: buttonrow.implicitHeight
 
-                Utils.IconToolButton {
-                    id: playBtn
-                    size: VLCStyle.icon_normal
-                    text: (player.playingState !== PlayerController.PLAYING_STATE_PAUSED
-                           && player.playingState !== PlayerController.PLAYING_STATE_STOPPED)
-                                 ? VLCIcons.pause
-                                 : VLCIcons.play
-                    onClicked: mainPlaylistController.togglePlayPause()
-                    focus: true
-                    KeyNavigation.right: nextBtn
-                }
-
-                Utils.IconToolButton {
-                    id: nextBtn
-                    size: VLCStyle.icon_normal
-                    text: VLCIcons.next
-                    onClicked: mainPlaylistController.next()
-                    KeyNavigation.right: repeatBtn
-                }
-
-                Utils.IconToolButton {
-                    id: repeatBtn
-                    size: VLCStyle.icon_normal
-                    checked: mainPlaylistController.repeatMode !== PlaylistControllerModel.PLAYBACK_REPEAT_NONE
-                    text: (mainPlaylistController.repeatMode === PlaylistControllerModel.PLAYBACK_REPEAT_CURRENT)
-                                 ? VLCIcons.repeat_one
-                                 : VLCIcons.repeat_all
-                    onClicked: mainPlaylistController.toggleRepeatMode()
-                }
+                navigationParent: root
+                navigationLeft: function() {  playingItemInfo.forceActiveFocus() }
             }
         }
-    }
 
-    Keys.onPressed: {
-        if (!event.accepted)
-            defaultKeyAction(event, 0)
+        Connections{
+            target: rootWindow
+            onToolBarConfUpdated: {
+                miniPlayerModel.reloadModel()
+            }
+        }
+
+        PlayerControlBarModel {
+            id: miniPlayerModel
+            mainCtx: mainctx
+            configName: "MiniPlayerToolbar"
+        }
+
+        ControlButtons {
+            id: controlmodelbuttons
+        }
+
+        Keys.onPressed: {
+            if (!event.accepted)
+                defaultKeyAction(event, 0)
+            if (!event.accepted)
+                rootWindow.sendHotkey(event.key);
+        }
+
     }
 }

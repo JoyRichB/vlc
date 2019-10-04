@@ -26,7 +26,7 @@ import "qrc:///style/"
 
 Utils.ListItem {
     width: root.width
-    height: VLCStyle.icon_normal
+    height: VLCStyle.icon_normal + VLCStyle.margin_small
 
     focus: true
 
@@ -40,9 +40,19 @@ Utils.ListItem {
     line1: model.name || qsTr("Unknown share")
     line2: model.mrl
 
+    showContextButton: true
+    onContextMenuButtonClicked: {
+        contextMenu.model = model
+        contextMenu.popup(menuParent,contextMenu.width,0)
+    }
+
     onItemClicked : {
-        delegateModel.updateSelection( modifier, view.currentIndex, index )
-        view.currentIndex = index
+        if (key == Qt.RightButton){
+            contextMenu.model = model
+            contextMenu.popup(this)
+        }
+        delegateModel.updateSelection( modifier, view[viewIndexPropertyName], index )
+        view[viewIndexPropertyName] = index
         this.forceActiveFocus()
     }
     onItemDoubleClicked: {

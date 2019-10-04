@@ -29,7 +29,7 @@ Utils.KeyNavigableTableView {
     id: root
 
     sortModel: ListModel {
-        ListElement{ criteria: "title";       width:0.44; text: qsTr("Title");    showSection: "title" }
+        ListElement{ isPrimary: true; criteria: "title";       width:0.44; text: qsTr("Title");    showSection: "title" }
         ListElement{ criteria: "album_title"; width:0.25; text: qsTr("Album");    showSection: "album_title" }
         ListElement{ criteria: "main_artist"; width:0.15; text: qsTr("Artist");   showSection: "main_artist" }
         ListElement{ criteria: "duration";    width:0.06; text: qsTr("Duration"); showSection: "" }
@@ -58,6 +58,30 @@ Utils.KeyNavigableTableView {
     }
 
     property alias parentId: rootmodel.parentId
+
+    colDelegate: Item {
+        anchors.fill: parent
+
+        property var rowModel: parent.rowModel
+        property var model: parent.colModel
+
+        Text {
+            anchors.fill:parent
+
+            text: !rowModel ? "" : (rowModel[model.criteria] || "")
+            elide: Text.ElideRight
+            font.pixelSize: VLCStyle.fontSize_normal
+            color: (model.isPrimary)? VLCStyle.colors.text : VLCStyle.colors.textInactive
+
+            anchors {
+                fill: parent
+                leftMargin: VLCStyle.margin_xsmall
+                rightMargin: VLCStyle.margin_xsmall
+            }
+            verticalAlignment: Text.AlignVCenter
+            horizontalAlignment: Text.AlignLeft
+        }
+    }
 
     onActionForSelection: {
         var list = []

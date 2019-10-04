@@ -64,12 +64,13 @@ float kVLCDefaultThumbnailPosition = .15;
                                           name:NSApplicationWillBecomeActiveNotification
                                         object:nil];
         [defaultNotificationCenter addObserver:self
+                                      selector:@selector(applicationWillBecomeActive:)
+                                          name:NSApplicationDidFinishLaunchingNotification
+                                        object:nil];
+        [defaultNotificationCenter addObserver:self
                                       selector:@selector(playbackStateChanged:)
                                           name:VLCPlayerStateChanged
                                         object:nil];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self lazyLoad];
-        });
     }
     return self;
 }
@@ -78,11 +79,6 @@ float kVLCDefaultThumbnailPosition = .15;
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     _p_libraryInstance = NULL;
-}
-
-- (void)lazyLoad
-{
-    [self applicationWillEnterBackground:nil];
 }
 
 - (void)applicationWillEnterBackground:(NSNotification *)aNotification
@@ -118,10 +114,35 @@ float kVLCDefaultThumbnailPosition = .15;
         return VLC_ENOOBJ;
     }
     input_item_t *p_inputItem = vlc_ml_get_input_item(_p_libraryInstance, mediaItem.libraryID);
+    if (!p_inputItem) {
+        msg_Err(getIntf(), "No input item found for media id %lli", mediaItem.libraryID);
+        return VLC_ENOITEM;
+    }
     int ret = [[[VLCMain sharedInstance] playlistController] addInputItem:p_inputItem atPosition:-1 startPlayback:playImmediately];
     input_item_Release(p_inputItem);
     if (ret == VLC_SUCCESS) {
         [mediaItem increasePlayCount];
+    }
+    return ret;
+}
+
+- (int)appendItemsToPlaylist:(NSArray <VLCMediaLibraryMediaItem *> *)mediaItemArray playFirstItemImmediately:(BOOL)playFirstItemImmediately
+{
+    if (!_p_libraryInstance) {
+        return VLC_ENOOBJ;
+    }
+
+    NSUInteger itemCount = [mediaItemArray count];
+    int ret = VLC_SUCCESS;
+    for (NSUInteger x = 0; x < itemCount; x++) {
+        if (unlikely(x == 0 && playFirstItemImmediately)) {
+            ret = [self appendItemToPlaylist:mediaItemArray[x] playImmediately:YES];
+        } else {
+            ret = [self appendItemToPlaylist:mediaItemArray[x] playImmediately:NO];
+        }
+        if (unlikely(ret != VLC_SUCCESS)) {
+            break;
+        }
     }
     return ret;
 }

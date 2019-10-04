@@ -85,6 +85,12 @@ struct intf_sys_t
     struct vlc_player_listener_id *player_listener;
 };
 
+static void foreach_g_free(void *data, void *userdata)
+{
+    g_free(data);
+    VLC_UNUSED(userdata);
+}
+
 /*****************************************************************************
  * Open: initialize and create stuff
  *****************************************************************************/
@@ -137,7 +143,7 @@ static int Open( vlc_object_t *p_this )
                 break;
             }
         }
-        g_list_foreach( p_caps, (GFunc)g_free, NULL );
+        g_list_foreach( p_caps, foreach_g_free, NULL );
         g_list_free( p_caps );
     }
 
@@ -339,7 +345,7 @@ static int Notify( vlc_object_t *p_this, const char *psz_temp, GdkPixbuf *pix,
     if( pix )
     {
         notify_notification_set_icon_from_pixbuf( notification, pix );
-        gdk_pixbuf_unref( pix );
+        g_object_unref( pix );
     }
 
     /* Adds previous and next buttons in the notification if actions are supported. */
@@ -357,4 +363,3 @@ static int Notify( vlc_object_t *p_this, const char *psz_temp, GdkPixbuf *pix,
     p_sys->notification = notification;
     return VLC_SUCCESS;
 }
-

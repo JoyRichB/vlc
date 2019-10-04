@@ -37,6 +37,7 @@
 #import "panels/VLCVideoEffectsWindowController.h"
 #import "panels/VLCBookmarksWindowController.h"
 #import "panels/dialogs/VLCCoreDialogProvider.h"
+#import "panels/dialogs/VLCCustomCropArWindowController.h"
 #import "panels/VLCInformationWindowController.h"
 #import "panels/VLCTimeSelectionPanelController.h"
 
@@ -87,6 +88,10 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
 
 @end
 
+@interface NSMenuItem (KeyEquivalentAddition)
+- (void)matchKeyEquivalentsOfMenuItem:(NSMenuItem *)menuItem;
+@end
+
 @interface VLCMainMenu() <NSMenuDelegate>
 {
     VLCAboutWindowController *_aboutWindowController;
@@ -102,6 +107,7 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     NSMenu *_playlistTableColumnsContextMenu;
 
     __strong VLCTimeSelectionPanelController *_timeSelectionPanel;
+    __strong VLCCustomCropArWindowController *_customARController;
 }
 @end
 
@@ -119,7 +125,6 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
 
 - (void)awakeFromNib
 {
-    _timeSelectionPanel = [[VLCTimeSelectionPanelController alloc] init];
     _playlistController = [[VLCMain sharedInstance] playlistController];
     _playerController = _playlistController.playerController;
 
@@ -133,6 +138,7 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     }
 
     [self setRateControlsEnabled:NO];
+    [self setSubtitleSizeControlsEnabled:NO];
 
 #ifdef HAVE_SPARKLE
     [_checkForUpdate setAction:@selector(checkForUpdates:)];
@@ -187,6 +193,10 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
                                name:VLCPlayerTrackListChanged
                              object:nil];
     [notificationCenter addObserver:self
+                           selector:@selector(updateTrackHandlingMenus:)
+                               name:VLCPlayerTrackSelectionChanged
+                             object:nil];
+    [notificationCenter addObserver:self
                            selector:@selector(updateTitleAndChapterMenus:)
                                name:VLCPlayerTitleListChanged
                              object:nil];
@@ -210,6 +220,9 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
                            selector:@selector(mediaItemChanged:)
                                name:VLCPlaylistCurrentItemChanged
                              object:nil];
+    [notificationCenter addObserver:self
+                           selector:@selector(voutListChanged:)
+                               name:VLCPlayerListOfVideoOutputThreadsChanged object:nil];
 
     [self setupVarMenuItem:_add_intf
                     target:VLC_OBJECT(getIntf())
@@ -274,24 +287,16 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     [self setupMenu: _subtitle_outlinethicknessMenu withIntList:"freetype-outline-thickness" andSelector:@selector(switchSubtitleOption:)];
 #endif
 
-    /* Build size menu based on different scale factors */
-    struct {
-        const char *const name;
-        int scaleValue;
-    } scaleValues[] = {
-        { N_("Smaller"), 50},
-        { N_("Small"),   75},
-        { N_("Normal"), 100},
-        { N_("Large"),  125},
-        { N_("Larger"), 150},
-        { NULL, 0 }
-    };
-
-    for (int i = 0; scaleValues[i].name; i++) {
-        NSMenuItem *menuItem = [_subtitle_sizeMenu addItemWithTitle: _NS(scaleValues[i].name) action:@selector(switchSubtitleSize:) keyEquivalent:@""];
-        [menuItem setTag:scaleValues[i].scaleValue];
-        [menuItem setTarget: self];
-    }
+    [_voutMenuplay matchKeyEquivalentsOfMenuItem:_play];
+    [_voutMenustop matchKeyEquivalentsOfMenuItem:_stop];
+    [_voutMenunext matchKeyEquivalentsOfMenuItem:_next];
+    [_voutMenuprev matchKeyEquivalentsOfMenuItem:_previous];
+    [_voutMenuRecord matchKeyEquivalentsOfMenuItem:_record];
+    [_voutMenuvolup matchKeyEquivalentsOfMenuItem:_vol_up];
+    [_voutMenuvoldown matchKeyEquivalentsOfMenuItem:_vol_down];
+    [_voutMenumute matchKeyEquivalentsOfMenuItem:_mute];
+    [_voutMenufullscreen matchKeyEquivalentsOfMenuItem:_fullscreenItem];
+    [_voutMenusnapshot matchKeyEquivalentsOfMenuItem:_snapshot];
 }
 
 - (void)setupMenu:(NSMenu *)menu withIntList:(char *)psz_name andSelector:(SEL)selector
@@ -384,8 +389,7 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     [_previous setTitle: _NS("Previous")];
     [_next setTitle: _NS("Next")];
     [_random setTitle: _NS("Random")];
-    [_repeat setTitle: _NS("Repeat One")];
-    [_loop setTitle: _NS("Repeat All")];
+    [_repeat setTitle: _NS("Repeat")];
     [_AtoBloop setTitle: _NS("A→B Loop")];
     [_sortPlaylist setTitle: _NS("Sort Playlist")];
     [_quitAfterPB setTitle: _NS("Quit after Playback")];
@@ -441,7 +445,11 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     [_openSubtitleFile setTitle: _NS("Add Subtitle File...")];
     [_subtitle_track setTitle: _NS("Subtitles Track")];
     [_subtitle_tracksMenu setTitle: _NS("Subtitles Track")];
-    [_subtitle_size setTitle: _NS("Text Size")];
+    [_subtitleSizeView setAutoresizingMask: NSViewWidthSizable];
+    [_subtitleSize setView: _subtitleSizeView];
+    [_subtitleSizeLabel setStringValue: _NS("Subtitles Size")];
+    [_subtitleSizeSmallerLabel setStringValue: _NS("Smaller")];
+    [_subtitleSizeLargerLabel setStringValue: _NS("Larger")];
     [_subtitle_textcolor setTitle: _NS("Text Color")];
     [_subtitle_outlinethickness setTitle: _NS("Outline Thickness")];
 
@@ -498,6 +506,13 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     [_voutMenuvolup setTitle: _NS("Volume Up")];
     [_voutMenuvoldown setTitle: _NS("Volume Down")];
     [_voutMenumute setTitle: _NS("Mute")];
+    [_voutMenuAudiotrack setTitle: _NS("Audio Track")];
+    [_voutMenuAudiotrackMenu setTitle: _NS("Audio Track")];
+    [_voutMenuVideotrack setTitle: _NS("Video Track")];
+    [_voutMenuVideotrackMenu setTitle: _NS("Video Track")];
+    [_voutMenuOpenSubtitleFile setTitle:_NS("Add Subtitle File...")];
+    [_voutMenuSubtitlestrack setTitle: _NS("Subtitles Track")];
+    [_voutMenuSubtitlestrackMenu setTitle: _NS("Subtitles Track")];
     [_voutMenufullscreen setTitle: _NS("Fullscreen")];
     [_voutMenusnapshot setTitle: _NS("Snapshot")];
 }
@@ -568,6 +583,11 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     [_random setKeyEquivalentModifierMask: VLCModifiersToCocoa(key)];
     FREENULL(key);
 
+    key = config_GetPsz("key-loop");
+    [_repeat setKeyEquivalent: VLCKeyToString(key)];
+    [_repeat setKeyEquivalentModifierMask: VLCModifiersToCocoa(key)];
+    FREENULL(key);
+
     key = config_GetPsz("key-zoom-half");
     [_half_window setKeyEquivalent: VLCKeyToString(key)];
     [_half_window setKeyEquivalentModifierMask: VLCModifiersToCocoa(key)];
@@ -608,62 +628,86 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     VLCInputItem *inputItem = _playerController.currentMedia;
 
     if (inputItem != NULL) {
-        audio_output_t *p_aout = [_playerController mainAudioOutput];
-        if (p_aout != NULL) {
-            [self setupVarMenuItem:_channels
-                            target:VLC_OBJECT(p_aout)
-                        objectType:VLCObjectTypeAout
-                               var:"stereo-mode"
-                          selector:@selector(toggleVar:)];
-
-            [self setupVarMenuItem:_visual
-                            target:VLC_OBJECT(p_aout)
-                        objectType:VLCObjectTypeAout
-                               var:"visual"
-                          selector:@selector(toggleVar:)];
-            aout_Release(p_aout);
-        }
-
-        vout_thread_t *p_vout = [_playerController videoOutputThreadForKeyWindow];
-        if (p_vout != NULL) {
-            [self setupVarMenuItem:_aspect_ratio
-                            target:VLC_OBJECT(p_vout)
-                        objectType:VLCObjectTypeVout
-                               var:"aspect-ratio"
-                          selector:@selector(toggleVar:)];
-
-            [self setupVarMenuItem:_crop
-                            target:VLC_OBJECT(p_vout)
-                        objectType:VLCObjectTypeVout
-                               var:"crop"
-                          selector:@selector(toggleVar:)];
-
-            [self setupVarMenuItem:_deinterlace
-                            target:VLC_OBJECT(p_vout)
-                        objectType:VLCObjectTypeVout
-                               var:"deinterlace"
-                          selector:@selector(toggleVar:)];
-
-            [self setupVarMenuItem:_deinterlace_mode
-                            target:VLC_OBJECT(p_vout)
-                        objectType:VLCObjectTypeVout
-                               var:"deinterlace-mode"
-                          selector:@selector(toggleVar:)];
-
-            vout_Release(p_vout);
-
-            [self refreshVoutDeviceMenu:nil];
-        }
-        [_postprocessing setEnabled:YES];
-        [self setSubmenusEnabled:YES];
+        [self rebuildAoutMenu];
+        [self rebuildVoutMenu];
         inputItem = nil;
 
         [self setRateControlsEnabled:_playerController.rateChangable];
+        [self setSubtitleSizeControlsEnabled:YES];
     } else {
         [_postprocessing setEnabled:NO];
-        [self setSubmenusEnabled:NO];
+        [self setAudioSubMenusEnabled:NO];
+        [self setVideoSubmenusEnabled:NO];
         [self setRateControlsEnabled:NO];
+        [self setSubtitleSizeControlsEnabled:NO];
     }
+}
+
+- (void)rebuildAoutMenu
+{
+    audio_output_t *p_aout = [_playerController mainAudioOutput];
+    if (!p_aout) {
+        return;
+    }
+    [self setupVarMenuItem:_channels
+                    target:VLC_OBJECT(p_aout)
+                objectType:VLCObjectTypeAout
+                       var:"stereo-mode"
+                  selector:@selector(toggleVar:)];
+
+    [self setupVarMenuItem:_visual
+                    target:VLC_OBJECT(p_aout)
+                objectType:VLCObjectTypeAout
+                       var:"visual"
+                  selector:@selector(toggleVar:)];
+    aout_Release(p_aout);
+    [self setAudioSubMenusEnabled:YES];
+}
+
+- (void)voutListChanged:(NSNotification *)aNotification
+{
+    [self rebuildVoutMenu];
+}
+
+- (void)rebuildVoutMenu
+{
+    vout_thread_t *p_vout = [_playerController videoOutputThreadForKeyWindow];
+    if (!p_vout) {
+        return;
+    }
+
+    [self setupVarMenuItem:_aspect_ratio
+                    target:VLC_OBJECT(p_vout)
+                objectType:VLCObjectTypeVout
+                       var:"aspect-ratio"
+                  selector:@selector(toggleVar:)];
+    [self appendCustomizationItem:_aspect_ratio];
+
+    [self setupVarMenuItem:_crop
+                    target:VLC_OBJECT(p_vout)
+                objectType:VLCObjectTypeVout
+                       var:"crop"
+                  selector:@selector(toggleVar:)];
+    [self appendCustomizationItem:_crop];
+
+    [self setupVarMenuItem:_deinterlace
+                    target:VLC_OBJECT(p_vout)
+                objectType:VLCObjectTypeVout
+                       var:"deinterlace"
+                  selector:@selector(toggleVar:)];
+
+    [self setupVarMenuItem:_deinterlace_mode
+                    target:VLC_OBJECT(p_vout)
+                objectType:VLCObjectTypeVout
+                       var:"deinterlace-mode"
+                  selector:@selector(toggleVar:)];
+
+    vout_Release(p_vout);
+
+    [self refreshVoutDeviceMenu:nil];
+
+    BOOL activeVideoPlayback = _playerController.activeVideoPlayback;
+    [self setVideoSubmenusEnabled:activeVideoPlayback];
 }
 
 - (void)refreshVoutDeviceMenu:(NSNotification *)notification
@@ -694,21 +738,27 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     [[submenu itemWithTag: var_InheritInteger(getIntf(), "macosx-vdev")] setState: NSOnState];
 }
 
-- (void)setSubmenusEnabled:(BOOL)b_enabled
+- (void)setAudioSubMenusEnabled:(BOOL)enabled
 {
-    [_visual setEnabled: b_enabled];
-    [_channels setEnabled: b_enabled];
-    [_deinterlace setEnabled: b_enabled];
-    [_deinterlace_mode setEnabled: b_enabled];
-    [_screen setEnabled: b_enabled];
-    [_aspect_ratio setEnabled: b_enabled];
-    [_crop setEnabled: b_enabled];
-    [self setSubtitleMenuEnabled: b_enabled];
+    [_visual setEnabled: enabled];
+    [_channels setEnabled: enabled];
+}
+
+- (void)setVideoSubmenusEnabled:(BOOL)enabled
+{
+    [_deinterlace setEnabled: enabled];
+    [_deinterlace_mode setEnabled: enabled];
+    [_screen setEnabled: enabled];
+    [_aspect_ratio setEnabled: enabled];
+    [_crop setEnabled: enabled];
+    [_postprocessing setEnabled: enabled];
+    [self setSubtitleMenuEnabled: enabled];
 }
 
 - (void)setSubtitleMenuEnabled:(BOOL)b_enabled
 {
     [_openSubtitleFile setEnabled: b_enabled];
+    [_voutMenuOpenSubtitleFile setEnabled: b_enabled];
     if (b_enabled) {
         [_subtitle_bgopacityLabel_gray setHidden: YES];
         [_subtitle_bgopacityLabel setHidden: NO];
@@ -726,12 +776,25 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     [self updatePlaybackRate];
 
     NSColor *color = b_enabled ? [NSColor controlTextColor] : [NSColor disabledControlTextColor];
-
     [_rateLabel setTextColor:color];
     [_rate_slowerLabel setTextColor:color];
     [_rate_normalLabel setTextColor:color];
     [_rate_fasterLabel setTextColor:color];
     [_rateTextField setTextColor:color];
+}
+
+- (void)setSubtitleSizeControlsEnabled:(BOOL)b_enabled
+{
+    [_subtitleSizeSlider setEnabled: b_enabled];
+    unsigned int scaleFactor = _playerController.subtitleTextScalingFactor;
+    [_subtitleSizeSlider setIntValue:scaleFactor];
+    [_subtitleSizeTextField setStringValue: [NSString stringWithFormat:@"%.2fx", scaleFactor / 100.]];
+
+    NSColor *color = b_enabled ? [NSColor controlTextColor] : [NSColor disabledControlTextColor];
+    [_subtitleSizeLabel setTextColor:color];
+    [_subtitleSizeSmallerLabel setTextColor:color];
+    [_subtitleSizeLargerLabel setTextColor:color];
+    [_subtitleSizeTextField setTextColor:color];
 }
 
 #pragma mark - View
@@ -770,18 +833,11 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
 - (IBAction)repeat:(id)sender
 {
     if (_playlistController.playbackRepeat == VLC_PLAYLIST_PLAYBACK_REPEAT_CURRENT) {
+        _playlistController.playbackRepeat = VLC_PLAYLIST_PLAYBACK_REPEAT_ALL;
+    } else if (_playlistController.playbackRepeat == VLC_PLAYLIST_PLAYBACK_REPEAT_ALL) {
         _playlistController.playbackRepeat = VLC_PLAYLIST_PLAYBACK_REPEAT_NONE;
     } else {
         _playlistController.playbackRepeat = VLC_PLAYLIST_PLAYBACK_REPEAT_CURRENT;
-    }
-}
-
-- (IBAction)loop:(id)sender
-{
-    if (_playlistController.playbackRepeat == VLC_PLAYLIST_PLAYBACK_REPEAT_ALL) {
-        _playlistController.playbackRepeat = VLC_PLAYLIST_PLAYBACK_REPEAT_NONE;
-    } else {
-        _playlistController.playbackRepeat = VLC_PLAYLIST_PLAYBACK_REPEAT_ALL;
     }
 }
 
@@ -832,7 +888,9 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
 
 - (void)updateRecordState
 {
-    [_record setState:_playerController.enableRecording];
+    NSControlStateValue state = _playerController.enableRecording ? NSOnState : NSOffState;
+    [_record setState:state];
+    [_voutMenuRecord setState:state];
 }
 
 - (IBAction)setPlaybackRate:(id)sender
@@ -864,6 +922,9 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
 
 - (IBAction)goToSpecificTime:(id)sender
 {
+    if (!_timeSelectionPanel) {
+        _timeSelectionPanel = [[VLCTimeSelectionPanelController alloc] init];
+    }
     vlc_tick_t length = _playerController.length;
     [_timeSelectionPanel setMaxTime:(int)SEC_FROM_VLC_TICK(length)];
     vlc_tick_t time = _playerController.time;
@@ -887,17 +948,20 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     NSArray *tracks = _playerController.audioTracks;
     NSUInteger numberOfTracks = tracks.count;
     [self rebuildTracksMenu:_audiotrackMenu withMetadata:tracks count:numberOfTracks category:AUDIO_ES];
-    _audiotrack.enabled = numberOfTracks > 0 ? YES : NO;
+    [self rebuildTracksMenu:_voutMenuAudiotrackMenu withMetadata:tracks count:numberOfTracks category:AUDIO_ES];
+    _voutMenuAudiotrack.enabled = _audiotrack.enabled = numberOfTracks > 0 ? YES : NO;
 
     tracks = _playerController.videoTracks;
     numberOfTracks = tracks.count;
     [self rebuildTracksMenu:_videotrackMenu withMetadata:tracks count:numberOfTracks category:VIDEO_ES];
-    _videotrack.enabled = numberOfTracks > 0 ? YES : NO;
+    [self rebuildTracksMenu:_voutMenuVideotrackMenu withMetadata:tracks count:numberOfTracks category:VIDEO_ES];
+    _voutMenuVideotrack.enabled = _videotrack.enabled = numberOfTracks > 0 ? YES : NO;
 
     tracks = _playerController.subtitleTracks;
     numberOfTracks = tracks.count;
     [self rebuildTracksMenu:_subtitle_tracksMenu withMetadata:tracks count:numberOfTracks category:SPU_ES];
-    _subtitle_track.enabled = numberOfTracks > 0 ? YES : NO;
+    [self rebuildTracksMenu:_voutMenuSubtitlestrackMenu withMetadata:tracks count:numberOfTracks category:SPU_ES];
+    _voutMenuSubtitlestrack.enabled = _subtitle_track.enabled = numberOfTracks > 0 ? YES : NO;
 }
 
 - (void)rebuildTracksMenu:(NSMenu *)menu
@@ -906,6 +970,7 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
                  category:(enum es_format_category_e)category
 {
     [menu removeAllItems];
+    BOOL itemSelected = NO;
 
     NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:_NS("Disable")
                                                       action:@selector(unselectTrackCategory:)
@@ -923,14 +988,25 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
         [menuItem setTarget:self];
         [menuItem setRepresentedObject:metaDataItem];
         [menuItem setEnabled:YES];
-        [menuItem setState:metaDataItem.selected ? NSOnState : NSOffState];
+        if (metaDataItem.selected) {
+            itemSelected = YES;
+            [menuItem setState:NSOnState];
+        } else {
+            [menuItem setState:NSOffState];
+        }
         [menu addItem:menuItem];
+    }
+
+    /* select the "Disabled" item in case no track is selected */
+    if (!itemSelected) {
+        [menu.itemArray.firstObject setState:NSOnState];
     }
 }
 
 - (void)selectTrack:(NSMenuItem *)sender
 {
-    [_playerController selectTrack:[sender representedObject]];
+    NSEvent *currentEvent = [NSApp currentEvent];
+    [_playerController selectTrack:[sender representedObject] exclusively:!(currentEvent.modifierFlags & NSAlternateKeyMask)];
 }
 
 - (void)unselectTrackCategory:(NSMenuItem *)sender
@@ -1193,9 +1269,11 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     }
 }
 
-- (void)switchSubtitleSize:(id)sender
+- (IBAction)subtitleSize:(id)sender
 {
-    _playerController.subtitleTextScalingFactor = (unsigned int)[sender tag];
+    unsigned int scaleFactor = _subtitleSizeSlider.intValue;
+    _playerController.subtitleTextScalingFactor = scaleFactor;
+    [_subtitleSizeTextField setStringValue: [NSString stringWithFormat:@"%.2fx", scaleFactor / 100.]];
 }
 
 - (void)switchSubtitleOption:(id)sender
@@ -1437,10 +1515,19 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
 - (void)playbackStateChanged:(NSNotification *)aNotification
 {
     enum vlc_player_state playerState = [_playlistController playerController].playerState;
-    if (playerState == VLC_PLAYER_STATE_PLAYING) {
-        [self setPause];
-    } else {
-        [self setPlay];
+
+    switch (playerState) {
+        case VLC_PLAYER_STATE_PLAYING:
+            [self setPause];
+            break;
+
+        case VLC_PLAYER_STATE_STOPPED:
+            [self setVideoSubmenusEnabled:NO];
+            [self setAudioSubMenusEnabled:NO];
+
+        default:
+            [self setPlay];
+            break;
     }
 }
 
@@ -1484,19 +1571,19 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
 - (void)setRepeatOne
 {
     [_repeat setState: NSOnState];
-    [_loop setState: NSOffState];
+    [_repeat setTitle: _NS("Repeat One")];
 }
 
 - (void)setRepeatAll
 {
-    [_repeat setState: NSOffState];
-    [_loop setState: NSOnState];
+    [_repeat setState: NSOnState];
+    [_repeat setTitle: _NS("Repeat All")];
 }
 
 - (void)setRepeatOff
 {
     [_repeat setState: NSOffState];
-    [_loop setState: NSOffState];
+    [_repeat setTitle: _NS("Repeat")];
 }
 
 #pragma mark - Dynamic menu creation and validation
@@ -1541,8 +1628,9 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
         return;
     }
 
-    if (var_Get(p_object, psz_variable, &val) < 0)
+    if (var_Get(p_object, psz_variable, &val) < 0) {
         return;
+    }
 
     VLCAutoGeneratedMenuContent *data;
     switch(i_type & VLC_VAR_TYPE) {
@@ -1574,7 +1662,6 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
         free(val.psz_string);
     free(text);
 }
-
 
 - (void)setupVarMenu:(NSMenu *)menu
          forMenuItem:(NSMenuItem *)parent
@@ -1728,6 +1815,49 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
     }
 }
 
+#pragma mark - crop and AR customization
+
+- (void)appendCustomizationItem:(NSMenuItem *)menuItem
+{
+    NSMenu *submenu = menuItem.submenu;
+    NSMenuItem *customizationItem = [[NSMenuItem alloc] initWithTitle:_NS("Custom")
+                                                               action:menuItem == _aspect_ratio ? @selector(performCustomAspectRatio:) : @selector(performCustomCrop:)
+                                                        keyEquivalent:@""];
+    [customizationItem setTarget:self];
+    [submenu addItem:[NSMenuItem separatorItem]];
+    [submenu addItem:customizationItem];
+}
+
+- (void)performCustomCropOrAspectRatioActionWithVariable:(const char *)variable andl10nString:(NSString *)l10nString
+{
+    if (!_customARController) {
+        _customARController = [[VLCCustomCropArWindowController alloc] init];
+    }
+    _customARController.title = l10nString;
+    [_customARController runModalForWindow:[NSApp mainWindow]
+                         completionHandler:^(NSInteger returnCode, NSString * _Nonnull geometry) {
+                             if (returnCode != NSModalResponseOK) {
+                                 return;
+                             }
+
+                             vout_thread_t *p_vout = [self->_playerController videoOutputThreadForKeyWindow];
+                             if (p_vout) {
+                                 var_SetString(p_vout, variable, [geometry UTF8String]);
+                                 vout_Release(p_vout);
+                             }
+                         }];
+}
+
+- (void)performCustomAspectRatio:(id)sender
+{
+    [self performCustomCropOrAspectRatioActionWithVariable:"aspect-ratio" andl10nString:_NS("Aspect Ratio")];
+}
+
+- (void)performCustomCrop:(id)sender
+{
+    [self performCustomCropOrAspectRatioActionWithVariable:"crop" andl10nString:_NS("Crop")];
+}
+
 #pragma mark - menu delegation
 
 - (void)menuWillOpen:(NSMenu *)menu
@@ -1771,17 +1901,11 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
                mi == _voutMenunext      ||
                mi == _dockMenunext) {
         enabled = _playlistController.hasNextPlaylistItem;
-    } else if (mi == _record) {
+    } else if (mi == _record || mi == _voutMenuRecord) {
         enabled = _playerController.recordable;
     } else if (mi == _random) {
         enum vlc_playlist_playback_order playbackOrder = [_playlistController playbackOrder];
         [mi setState: playbackOrder == VLC_PLAYLIST_PLAYBACK_ORDER_RANDOM ? NSOnState : NSOffState];
-    } else if (mi == _repeat) {
-        enum vlc_playlist_playback_repeat playbackRepeat = [_playlistController playbackRepeat];
-        [mi setState: playbackRepeat == VLC_PLAYLIST_PLAYBACK_REPEAT_CURRENT ? NSOnState : NSOffState];
-    } else if (mi == _loop) {
-        enum vlc_playlist_playback_repeat playbackRepeat = [_playlistController playbackRepeat];
-        [mi setState: playbackRepeat == VLC_PLAYLIST_PLAYBACK_REPEAT_ALL ? NSOnState : NSOffState];
     } else if (mi == _quitAfterPB) {
         BOOL state = _playerController.actionAfterStop == VLC_PLAYER_MEDIA_STOPPED_EXIT;
         [mi setState: state ? NSOnState : NSOffState];
@@ -1813,12 +1937,11 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
             vout_Release(p_vout);
         }
 
-    } else if (mi == _openSubtitleFile) {
+    } else if (mi == _openSubtitleFile || mi == _voutMenuOpenSubtitleFile) {
         enabled = YES;
     } else {
         NSMenuItem *_parent = [mi parentItem];
-        if (_parent == _subtitle_size || mi == _subtitle_size           ||
-            _parent == _subtitle_textcolor || mi == _subtitle_textcolor ||
+        if (_parent == _subtitle_textcolor || mi == _subtitle_textcolor ||
             _parent == _subtitle_bgcolor || mi == _subtitle_bgcolor     ||
             _parent == _subtitle_bgopacity || mi == _subtitle_bgopacity ||
             _parent == _subtitle_outlinethickness || mi == _subtitle_outlinethickness
@@ -1899,6 +2022,16 @@ typedef NS_ENUM(NSInteger, VLCObjectType) {
         free(_variableValue.psz_string);
     }
     free(_variableName);
+}
+
+@end
+
+@implementation NSMenuItem (KeyEquivalentAddition)
+
+- (void)matchKeyEquivalentsOfMenuItem:(NSMenuItem *)menuItem
+{
+    self.keyEquivalent = menuItem.keyEquivalent;
+    self.keyEquivalentModifierMask = menuItem.keyEquivalentModifierMask;
 }
 
 @end

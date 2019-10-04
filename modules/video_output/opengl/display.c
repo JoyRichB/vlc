@@ -49,7 +49,7 @@ vlc_module_begin ()
 # define MODULE_VARNAME "gles2"
     set_shortname (N_("OpenGL ES2"))
     set_description (N_("OpenGL for Embedded Systems 2 video output"))
-    set_callbacks_display (Open, Close, 265)
+    set_callback_display(Open, 265)
     add_shortcut ("opengles2", "gles2")
     add_module("gles2", "opengl es2", NULL, GLES2_TEXT, PROVIDER_LONGTEXT)
 
@@ -61,7 +61,7 @@ vlc_module_begin ()
     set_description (N_("OpenGL video output"))
     set_category (CAT_VIDEO)
     set_subcategory (SUBCAT_VIDEO_VOUT)
-    set_callbacks_display (Open, Close, 270)
+    set_callback_display(Open, 270)
     add_shortcut ("opengl", "gl")
     add_module("gl", "opengl", NULL, GL_TEXT, PROVIDER_LONGTEXT)
 #endif
@@ -73,6 +73,8 @@ struct vout_display_sys_t
     vout_display_opengl_t *vgl;
     vlc_gl_t *gl;
     picture_pool_t *pool;
+    vout_display_place_t place;
+    bool place_changed;
 };
 
 /* Display callbacks */
@@ -93,6 +95,7 @@ static int Open(vout_display_t *vd, const vout_display_cfg_t *cfg,
 
     sys->gl = NULL;
     sys->pool = NULL;
+    sys->place_changed = false;
 
     vout_window_t *surface = cfg->window;
     char *gl_name = var_InheritString(surface, MODULE_VARNAME);
@@ -147,6 +150,7 @@ static int Open(vout_display_t *vd, const vout_display_cfg_t *cfg,
     vd->prepare = PictureRender;
     vd->display = PictureDisplay;
     vd->control = Control;
+    vd->close = Close;
     return VLC_SUCCESS;
 
 error:
@@ -207,6 +211,15 @@ static void PictureDisplay (vout_display_t *vd, picture_t *pic)
 
     if (vlc_gl_MakeCurrent (sys->gl) == VLC_SUCCESS)
     {
+        if (sys->place_changed)
+        {
+            float window_ar = (float)sys->place.width / sys->place.height;
+            vout_display_opengl_SetWindowAspectRatio(sys->vgl, window_ar);
+            vout_display_opengl_Viewport(sys->vgl, sys->place.x, sys->place.y,
+                                         sys->place.width, sys->place.height);
+            sys->place_changed = false;
+        }
+
         vout_display_opengl_Display (sys->vgl, &vd->source);
         vlc_gl_ReleaseCurrent (sys->gl);
     }
@@ -229,7 +242,6 @@ static int Control (vout_display_t *vd, int query, va_list ap)
       {
         vout_display_cfg_t c = *va_arg (ap, const vout_display_cfg_t *);
         const video_format_t *src = &vd->source;
-        vout_display_place_t place;
 
         /* Reverse vertical alignment as the GL tex are Y inverted */
         if (c.align.vertical == VLC_VIDEO_ALIGN_TOP)
@@ -237,13 +249,9 @@ static int Control (vout_display_t *vd, int query, va_list ap)
         else if (c.align.vertical == VLC_VIDEO_ALIGN_BOTTOM)
             c.align.vertical = VLC_VIDEO_ALIGN_TOP;
 
-        vout_display_PlacePicture(&place, src, &c);
+        vout_display_PlacePicture(&sys->place, src, &c);
+        sys->place_changed = true;
         vlc_gl_Resize (sys->gl, c.display.width, c.display.height);
-        if (vlc_gl_MakeCurrent (sys->gl) != VLC_SUCCESS)
-            return VLC_SUCCESS;
-        vout_display_opengl_SetWindowAspectRatio(sys->vgl, (float)place.width / place.height);
-        vout_display_opengl_Viewport(sys->vgl, place.x, place.y, place.width, place.height);
-        vlc_gl_ReleaseCurrent (sys->gl);
         return VLC_SUCCESS;
       }
 
@@ -251,14 +259,9 @@ static int Control (vout_display_t *vd, int query, va_list ap)
       case VOUT_DISPLAY_CHANGE_SOURCE_CROP:
       {
         const vout_display_cfg_t *cfg = va_arg (ap, const vout_display_cfg_t *);
-        vout_display_place_t place;
 
-        vout_display_PlacePicture(&place, &vd->source, cfg);
-        if (vlc_gl_MakeCurrent (sys->gl) != VLC_SUCCESS)
-            return VLC_SUCCESS;
-        vout_display_opengl_SetWindowAspectRatio(sys->vgl, (float)place.width / place.height);
-        vout_display_opengl_Viewport(sys->vgl, place.x, place.y, place.width, place.height);
-        vlc_gl_ReleaseCurrent (sys->gl);
+        vout_display_PlacePicture(&sys->place, &vd->source, cfg);
+        sys->place_changed = true;
         return VLC_SUCCESS;
       }
       case VOUT_DISPLAY_CHANGE_VIEWPOINT:

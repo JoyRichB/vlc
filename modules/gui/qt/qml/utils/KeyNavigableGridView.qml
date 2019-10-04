@@ -28,15 +28,10 @@ NavigableFocusScope {
     signal selectAll()
     signal actionAtIndex( int index )
 
-    //compute a delta that can be applied to grid elements to obtain an horizontal distribution
-    function shiftX( index ) {
-        var rightSpace = width - (view._colCount * view.cellWidth)
-        return ((index % view._colCount) + 1) * (rightSpace / (view._colCount + 1))
-    }
-
     //forward view properties
     property alias interactive: view.interactive
     property alias model: view.model
+    property alias delegate: view.delegate
 
     property alias cellWidth: view.cellWidth
     property alias cellHeight: view.cellHeight

@@ -42,17 +42,20 @@
 #include "../libvlc.h"
 #include "vout_internal.h"
 #include "../misc/subpicture.h"
-#include "../input/input_internal.h"
 
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
 
-/* Hold of subpicture with converted ts */
+/* Hold of subpicture with original ts */
 typedef struct {
-    subpicture_t *subpic;
-    vlc_tick_t start;
-    vlc_tick_t stop;
+    /* Shared with prerendering thread */
+    subpicture_t *subpic; /* picture to be rendered */
+    /* */
+    vlc_tick_t orgstart; /* original picture timestamp, for conversion updates */
+    vlc_tick_t orgstop;
+    vlc_tick_t start; /* current entry rendering time, */
+    vlc_tick_t stop;  /* set to subpicture at rendering time */
     bool is_late;
     enum vlc_vout_order channel_order;
 } spu_render_entry_t;
@@ -69,6 +72,8 @@ struct spu_channel {
 };
 
 typedef struct VLC_VECTOR(struct spu_channel) spu_channel_vector;
+typedef struct VLC_VECTOR(subpicture_t *) spu_prerender_vector;
+#define SPU_CHROMALIST_COUNT 8
 
 struct spu_private_t {
     vlc_mutex_t  lock;            /* lock to protect all followings fields */
@@ -78,6 +83,7 @@ struct spu_private_t {
 
     int channel;             /**< number of subpicture channels registered */
     filter_t *text;                              /**< text renderer module */
+    vlc_mutex_t textlock;
     filter_t *scale_yuvp;                     /**< scaling module for YUVP */
     filter_t *scale;                    /**< scaling module (all but YUVP) */
     bool force_crop;                     /**< force cropping of subpicture */
@@ -106,11 +112,27 @@ struct spu_private_t {
     char           *filter_chain_update;
     vlc_mutex_t    filter_chain_lock;
     filter_chain_t *filter_chain;
+    /**/
+    struct
+    {
+        vlc_thread_t    thread;
+        vlc_mutex_t     lock;
+        vlc_cond_t      cond;
+        vlc_cond_t      output_cond;
+        spu_prerender_vector vector;
+        subpicture_t   *p_processed;
+        video_format_t  fmtsrc;
+        video_format_t  fmtdst;
+        vlc_fourcc_t    chroma_list[SPU_CHROMALIST_COUNT+1];
+    } prerender;
 
     /* */
     vlc_tick_t          last_sort_date;
     vout_thread_t       *vout;
 };
+
+static void spu_PrerenderSync(spu_private_t *, const subpicture_t *);
+static void spu_PrerenderCancel(spu_private_t *, const subpicture_t *);
 
 static void spu_channel_Init(struct spu_channel *channel, size_t id,
                              enum vlc_vout_order order, vlc_clock_t *clock)
@@ -124,10 +146,15 @@ static void spu_channel_Init(struct spu_channel *channel, size_t id,
     vlc_vector_init(&channel->entries);
 }
 
-static int spu_channel_Push(struct spu_channel *channel, subpicture_t *subpic)
+static int spu_channel_Push(struct spu_channel *channel, subpicture_t *subpic,
+                            vlc_tick_t orgstart, vlc_tick_t orgstop)
 {
     const spu_render_entry_t entry = {
         .subpic = subpic,
+        .orgstart = orgstart,
+        .orgstop = orgstop,
+        .start = subpic->i_start,
+        .stop = subpic->i_stop,
     };
     return vlc_vector_push(&channel->entries, entry) ? VLC_SUCCESS : VLC_EGENERIC;
 }
@@ -141,11 +168,12 @@ static void spu_channel_DeleteAt(struct spu_channel *channel, size_t index)
     vlc_vector_remove(&channel->entries, index);
 }
 
-static void spu_channel_Clean(struct spu_channel *channel)
+static void spu_channel_Clean(spu_private_t *sys, struct spu_channel *channel)
 {
     for (size_t i = 0; i < channel->entries.size; i++)
     {
         assert(channel->entries.data[i].subpic);
+        spu_PrerenderCancel(sys, channel->entries.data[i].subpic);
         subpicture_Delete(channel->entries.data[i].subpic);
     }
     vlc_vector_destroy(&channel->entries);
@@ -198,13 +226,6 @@ static void FilterRelease(filter_t *filter)
     vlc_object_delete(filter);
 }
 
-static picture_t *spu_new_video_buffer(filter_t *filter)
-{
-    const video_format_t *fmt = &filter->fmt_out.video;
-
-    return picture_NewFromFormat(fmt);
-}
-
 static int spu_get_attachments(filter_t *filter,
                                input_attachment_t ***attachment_ptr,
                                int *attachment_count)
@@ -251,10 +272,6 @@ static filter_t *SpuRenderCreateAndLoadText(spu_t *spu)
     return text;
 }
 
-static const struct filter_video_callbacks spu_scaler_cbs = {
-    spu_new_video_buffer,
-};
-
 static filter_t *SpuRenderCreateAndLoadScale(vlc_object_t *object,
                                              vlc_fourcc_t src_chroma,
                                              vlc_fourcc_t dst_chroma,
@@ -278,8 +295,6 @@ static filter_t *SpuRenderCreateAndLoadScale(vlc_object_t *object,
     scale->fmt_out.video.i_height =
     scale->fmt_out.video.i_visible_height = require_resize ? 16 : 32;
 
-    scale->owner.video = &spu_scaler_cbs;
-
     scale->p_module = module_need(scale, "video converter", NULL, false);
     if (!scale->p_module)
     {
@@ -292,14 +307,38 @@ static filter_t *SpuRenderCreateAndLoadScale(vlc_object_t *object,
 
 static void SpuRenderText(spu_t *spu,
                           subpicture_region_t *region,
+                          int i_original_width,
+                          int i_original_height,
                           const vlc_fourcc_t *chroma_list)
 {
-    filter_t *text = spu->p->text;
-
+    spu_private_t *sys = spu->p;
+    filter_t *text = sys->text;
     assert(region->fmt.i_chroma == VLC_CODEC_TEXT);
 
-    if ( region->p_text )
-        text->pf_render(text, region, region, chroma_list);
+    vlc_mutex_lock(&sys->textlock);
+    if(text)
+    {
+        // assume rendered text is in sRGB if nothing is set
+        if (region->fmt.transfer == TRANSFER_FUNC_UNDEF)
+            region->fmt.transfer = TRANSFER_FUNC_SRGB;
+        if (region->fmt.primaries == COLOR_PRIMARIES_UNDEF)
+            region->fmt.primaries = COLOR_PRIMARIES_SRGB;
+        if (region->fmt.space == COLOR_SPACE_UNDEF)
+            region->fmt.space = COLOR_SPACE_SRGB;
+        if (region->fmt.color_range == COLOR_RANGE_UNDEF)
+            region->fmt.color_range = COLOR_RANGE_FULL;
+
+        /* FIXME aspect ratio ? */
+        text->fmt_out.video.i_width          =
+        text->fmt_out.video.i_visible_width  = i_original_width;
+
+        text->fmt_out.video.i_height         =
+        text->fmt_out.video.i_visible_height = i_original_height;
+
+        if ( region->p_text )
+            text->pf_render(text, region, region, chroma_list);
+    }
+    vlc_mutex_unlock(&sys->textlock);
 }
 
 /**
@@ -512,7 +551,7 @@ static int SSizeCmp(ssize_t i0, ssize_t i1)
  * This function compares 2 subpictures using the following properties
  * (ordered by priority)
  * 1. absolute positionning
- * 2. start time
+ * 2. start time (display time)
  * 3. creation order (per channel)
  *
  * It can be used by qsort.
@@ -529,7 +568,7 @@ static int SpuRenderCmp(const void *s0, const void *s1)
 
     r = IntegerCmp(!subpic0->b_absolute, !subpic1->b_absolute);
     if (!r)
-        r = IntegerCmp(render_entry0->start, render_entry1->start);
+        r = IntegerCmp(subpic0->i_start, subpic1->i_start);
     if (!r)
         r = SSizeCmp(subpic0->i_channel, subpic1->i_channel);
     if (!r)
@@ -537,7 +576,7 @@ static int SpuRenderCmp(const void *s0, const void *s1)
     return r;
 }
 
-static size_t spu_channel_ConvertDates(struct spu_channel *channel,
+static size_t spu_channel_UpdateDates(struct spu_channel *channel,
                                        vlc_tick_t system_now)
 {
     /* Put every spu start and stop ts into the same array to convert them in
@@ -551,11 +590,11 @@ static size_t spu_channel_ConvertDates(struct spu_channel *channel,
 
     for (size_t index = 0; index < channel->entries.size; index++)
     {
-        subpicture_t *current = channel->entries.data[index].subpic;
+        spu_render_entry_t *current = &channel->entries.data[index];
         assert(current);
 
-        date_array[index * 2] = current->i_start;
-        date_array[index * 2 + 1] = current->i_stop;
+        date_array[index * 2] = current->orgstart;
+        date_array[index * 2 + 1] = current->orgstop;
     }
 
     /* Convert all spu ts */
@@ -641,7 +680,7 @@ spu_SelectSubpictures(spu_t *spu, vlc_tick_t system_now,
         int64_t      ephemer_subtitle_order = INT64_MIN;
         int64_t      ephemer_system_order = INT64_MIN;
 
-        if (spu_channel_ConvertDates(channel, system_now) == 0)
+        if (spu_channel_UpdateDates(channel, system_now) == 0)
             continue;
 
         /* Select available pictures */
@@ -660,7 +699,7 @@ spu_SelectSubpictures(spu_t *spu, vlc_tick_t system_now,
 
             vlc_tick_t *ephemer_date_ptr  = current->b_subtitle ? &ephemer_subtitle_date  : &ephemer_osd_date;
             int64_t *ephemer_order_ptr = current->b_subtitle ? &ephemer_subtitle_order : &ephemer_system_order;
-            if (render_entry->start >= *ephemer_date_ptr) {
+            if (current->i_start >= *ephemer_date_ptr) {
                 *ephemer_date_ptr = render_entry->start;
                 if (current->i_order > *ephemer_order_ptr)
                     *ephemer_order_ptr = current->i_order;
@@ -716,6 +755,7 @@ spu_SelectSubpictures(spu_t *spu, vlc_tick_t system_now,
 
             if (is_rejeted)
             {
+                spu_PrerenderCancel(sys, current);
                 subpicture_Delete(current);
                 vlc_vector_remove(&channel->entries, index);
             }
@@ -743,6 +783,7 @@ static void SpuRenderRegion(spu_t *spu,
                             const spu_scale_t scale_size,
                             const vlc_fourcc_t *chroma_list,
                             const video_format_t *fmt,
+                            int i_original_width, int i_original_height,
                             const spu_area_t *subtitle_area, size_t subtitle_area_count,
                             vlc_tick_t render_date)
 {
@@ -760,19 +801,11 @@ static void SpuRenderRegion(spu_t *spu,
     *dst_ptr  = NULL;
 
     /* Render text region */
-    if (region->fmt.i_chroma == VLC_CODEC_TEXT) {
-        // assume rendered text is in sRGB if nothing is set
-        if (region->fmt.transfer == TRANSFER_FUNC_UNDEF)
-            region->fmt.transfer = TRANSFER_FUNC_SRGB;
-        if (region->fmt.primaries == COLOR_PRIMARIES_UNDEF)
-            region->fmt.primaries = COLOR_PRIMARIES_SRGB;
-        if (region->fmt.space == COLOR_SPACE_UNDEF)
-            region->fmt.space = COLOR_SPACE_SRGB;
-        if (region->fmt.color_range == COLOR_RANGE_UNDEF)
-            region->fmt.color_range = COLOR_RANGE_FULL;
-
-        SpuRenderText(spu, region, chroma_list);
-
+    if (region->fmt.i_chroma == VLC_CODEC_TEXT)
+    {
+        SpuRenderText(spu, region,
+                      i_original_width, i_original_height,
+                      chroma_list);
         /* Check if the rendering has failed ... */
         if (region->fmt.i_chroma == VLC_CODEC_TEXT)
             return;
@@ -1075,11 +1108,11 @@ static void SpuRenderRegion(spu_t *spu,
         dst->p_picture = picture_Hold(region_picture);
         int fade_alpha = 255;
         if (subpic->b_fade) {
-            vlc_tick_t fade_start = entry->start + 3 * (entry->stop - entry->start) / 4;
+            vlc_tick_t fade_start = subpic->i_start + 3 * (subpic->i_stop - subpic->i_start) / 4;
 
-            if (fade_start <= render_date && fade_start < entry->stop)
-                fade_alpha = 255 * (entry->stop - render_date) /
-                                   (entry->stop - fade_start);
+            if (fade_start <= render_date && fade_start < subpic->i_stop)
+                fade_alpha = 255 * (subpic->i_stop - render_date) /
+                                   (subpic->i_stop - fade_start);
         }
         dst->i_alpha   = fade_alpha * subpic->i_alpha * region->i_alpha / 65025;
     }
@@ -1098,8 +1131,6 @@ static subpicture_t *SpuRenderSubpictures(spu_t *spu,
                                           vlc_tick_t render_subtitle_date,
                                           bool external_scale)
 {
-    spu_private_t *sys = spu->p;
-
     /* Count the number of regions and subtitle regions */
     unsigned int subtitle_region_count = 0;
     unsigned int region_count          = 0;
@@ -1158,12 +1189,8 @@ static subpicture_t *SpuRenderSubpictures(spu_t *spu,
             subpic->i_original_picture_height = fmt_src->i_visible_height;
         }
 
-        /* FIXME aspect ratio ? */
-        sys->text->fmt_out.video.i_width          =
-        sys->text->fmt_out.video.i_visible_width  = subpic->i_original_picture_width;
-
-        sys->text->fmt_out.video.i_height         =
-        sys->text->fmt_out.video.i_visible_height = subpic->i_original_picture_height;
+        const int i_original_width = subpic->i_original_picture_width;
+        const int i_original_height = subpic->i_original_picture_height;
 
         /* Render all regions
          * We always transform non absolute subtitle into absolute one on the
@@ -1205,6 +1232,7 @@ static subpicture_t *SpuRenderSubpictures(spu_t *spu,
             SpuRenderRegion(spu, output_last_ptr, &area,
                             entry, region, virtual_scale,
                             chroma_list, fmt_dst,
+                            i_original_width, i_original_height,
                             subtitle_area, subtitle_area_count,
                             subpic->b_subtitle ? render_subtitle_date : system_now);
             if (*output_last_ptr)
@@ -1370,9 +1398,246 @@ static int SubSourceDelProxyCallbacks(filter_t *filter, void *opaque)
     return VLC_SUCCESS;
 }
 
+static void spu_PrerenderWake(spu_private_t *sys,
+                              const video_format_t *fmt_dst,
+                              const video_format_t *fmt_src,
+                              const vlc_fourcc_t *chroma_list)
+{
+    vlc_mutex_lock(&sys->prerender.lock);
+    if(!video_format_IsSimilar(fmt_dst, &sys->prerender.fmtdst))
+    {
+        video_format_Clean(&sys->prerender.fmtdst);
+        video_format_Copy(&sys->prerender.fmtdst, fmt_dst);
+    }
+    if(!video_format_IsSimilar(fmt_src, &sys->prerender.fmtsrc))
+    {
+        video_format_Clean(&sys->prerender.fmtsrc);
+        video_format_Copy(&sys->prerender.fmtsrc, fmt_src);
+    }
+
+    for(size_t i=0; i<SPU_CHROMALIST_COUNT; i++)
+    {
+        sys->prerender.chroma_list[i] = chroma_list[i];
+        if(!chroma_list[i])
+            break;
+    }
+
+    vlc_cond_signal(&sys->prerender.cond);
+    vlc_mutex_unlock(&sys->prerender.lock);
+}
+
+static void spu_PrerenderEnqueue(spu_private_t *sys, subpicture_t *p_subpic)
+{
+    vlc_mutex_lock(&sys->prerender.lock);
+    vlc_vector_push(&sys->prerender.vector, p_subpic);
+    vlc_cond_signal(&sys->prerender.cond);
+    vlc_mutex_unlock(&sys->prerender.lock);
+}
+
+static void spu_PrerenderCancel(spu_private_t *sys, const subpicture_t *p_subpic)
+{
+    vlc_mutex_lock(&sys->prerender.lock);
+    ssize_t i_idx;
+    vlc_vector_index_of(&sys->prerender.vector, p_subpic, &i_idx);
+    if(i_idx >= 0)
+        vlc_vector_remove(&sys->prerender.vector, i_idx);
+    else while(sys->prerender.p_processed == p_subpic)
+        vlc_cond_wait(&sys->prerender.output_cond, &sys->prerender.lock);
+    vlc_mutex_unlock(&sys->prerender.lock);
+}
+
+static void spu_PrerenderPause(spu_private_t *sys)
+{
+    vlc_mutex_lock(&sys->prerender.lock);
+    while(sys->prerender.p_processed)
+        vlc_cond_wait(&sys->prerender.output_cond, &sys->prerender.lock);
+    sys->prerender.chroma_list[0] = 0;
+    vlc_mutex_unlock(&sys->prerender.lock);
+}
+
+static void spu_PrerenderSync(spu_private_t *sys, const subpicture_t *p_subpic)
+{
+    vlc_mutex_lock(&sys->prerender.lock);
+    ssize_t i_idx;
+    vlc_vector_index_of(&sys->prerender.vector, p_subpic, &i_idx);
+    while(i_idx >= 0 || sys->prerender.p_processed == p_subpic)
+    {
+        vlc_cond_wait(&sys->prerender.output_cond, &sys->prerender.lock);
+        vlc_vector_index_of(&sys->prerender.vector, p_subpic, &i_idx);
+    }
+    vlc_mutex_unlock(&sys->prerender.lock);
+}
+
+static void spu_PrerenderText(spu_t *spu, subpicture_t *p_subpic,
+                              video_format_t *fmtsrc, video_format_t *fmtdst,
+                              vlc_fourcc_t *chroma_list)
+{
+    if (p_subpic->i_original_picture_width  <= 0 ||
+        p_subpic->i_original_picture_height <= 0) {
+        if (p_subpic->i_original_picture_width  > 0 ||
+            p_subpic->i_original_picture_height > 0)
+            msg_Err(spu, "original picture size %dx%d is unsupported",
+                     p_subpic->i_original_picture_width,
+                     p_subpic->i_original_picture_height);
+        else
+            msg_Warn(spu, "original picture size is undefined");
+
+        p_subpic->i_original_picture_width  = fmtsrc->i_visible_width;
+        p_subpic->i_original_picture_height = fmtsrc->i_visible_height;
+    }
+
+
+    subpicture_Update(p_subpic, fmtsrc, fmtdst,
+                      p_subpic->b_subtitle ? p_subpic->i_start : vlc_tick_now());
+
+    const int i_original_picture_width = p_subpic->i_original_picture_width;
+    const int i_original_picture_height = p_subpic->i_original_picture_height;
+
+    subpicture_region_t *region;
+    for (region = p_subpic->p_region; region != NULL; region = region->p_next)
+    {
+        if(region->fmt.i_chroma != VLC_CODEC_TEXT)
+            continue;
+        SpuRenderText(spu, region,
+                      i_original_picture_width, i_original_picture_height,
+                      chroma_list);
+    }
+}
+
+struct spu_prerender_ctx_s
+{
+    video_format_t fmtsrc;
+    video_format_t fmtdst;
+    vlc_fourcc_t chroma_list[SPU_CHROMALIST_COUNT+1];
+    vlc_mutex_t *cleanuplock;
+    subpicture_t **pp_processed;
+};
+
+static void spu_prerender_cleanup_routine(void *priv)
+{
+    struct spu_prerender_ctx_s *ctx = priv;
+    video_format_Clean(&ctx->fmtdst);
+    video_format_Clean(&ctx->fmtsrc);
+    *ctx->pp_processed = NULL;
+    vlc_mutex_unlock(ctx->cleanuplock);
+}
+
+static void * spu_PrerenderThread(void *priv)
+{
+    spu_t *spu = priv;
+    spu_private_t *sys = spu->p;
+
+    struct spu_prerender_ctx_s ctx;
+    ctx.cleanuplock = &sys->prerender.lock;
+    ctx.chroma_list[SPU_CHROMALIST_COUNT] = 0;
+    video_format_Init(&ctx.fmtsrc, 0);
+    video_format_Init(&ctx.fmtdst, 0);
+    ctx.pp_processed = &sys->prerender.p_processed;
+
+    vlc_mutex_lock(&sys->prerender.lock);
+    for( ;; )
+    {
+        vlc_cleanup_push(spu_prerender_cleanup_routine, &ctx);
+        while(!sys->prerender.vector.size || !sys->prerender.chroma_list[0])
+            vlc_cond_wait(&sys->prerender.cond, &sys->prerender.lock);
+
+        size_t i_idx = 0;
+        sys->prerender.p_processed = sys->prerender.vector.data[0];
+        for(size_t i=1; i<sys->prerender.vector.size; i++)
+        {
+             if(sys->prerender.p_processed->i_start > sys->prerender.vector.data[i]->i_start)
+             {
+                 sys->prerender.p_processed = sys->prerender.vector.data[i];
+                 i_idx = i;
+             }
+        }
+        vlc_vector_remove(&sys->prerender.vector, i_idx);
+        memcpy(&ctx.chroma_list, sys->prerender.chroma_list, SPU_CHROMALIST_COUNT);
+        video_format_Clean(&ctx.fmtdst);
+        video_format_Clean(&ctx.fmtsrc);
+        video_format_Copy(&ctx.fmtdst, &sys->prerender.fmtdst);
+        video_format_Copy(&ctx.fmtsrc, &sys->prerender.fmtsrc);
+
+        vlc_mutex_unlock(&sys->prerender.lock);
+        vlc_cleanup_pop();
+
+        int canc = vlc_savecancel();
+        spu_PrerenderText(spu, sys->prerender.p_processed,
+                          &ctx.fmtsrc, &ctx.fmtdst, ctx.chroma_list);
+        vlc_restorecancel(canc);
+
+        vlc_mutex_lock(&sys->prerender.lock);
+        sys->prerender.p_processed = NULL;
+        vlc_cond_signal(&sys->prerender.output_cond);
+    }
+
+    return NULL;
+}
+
 /*****************************************************************************
  * Public API
  *****************************************************************************/
+
+static void spu_Cleanup(spu_t *spu)
+{
+    spu_private_t *sys = spu->p;
+
+    if (sys->text)
+        FilterRelease(sys->text);
+    vlc_mutex_destroy(&sys->textlock);
+
+    if (sys->scale_yuvp)
+        FilterRelease(sys->scale_yuvp);
+
+    if (sys->scale)
+        FilterRelease(sys->scale);
+
+    filter_chain_ForEach(sys->source_chain, SubSourceClean, spu);
+    if (sys->vout)
+        filter_chain_ForEach(sys->source_chain,
+                             SubSourceDelProxyCallbacks, sys->vout);
+    filter_chain_Delete(sys->source_chain);
+    free(sys->source_chain_current);
+    if (sys->vout)
+        filter_chain_ForEach(sys->filter_chain,
+                             SubFilterDelProxyCallbacks, sys->vout);
+    filter_chain_Delete(sys->filter_chain);
+    free(sys->filter_chain_current);
+    vlc_mutex_destroy(&sys->filter_chain_lock);
+    free(sys->source_chain_update);
+    free(sys->filter_chain_update);
+
+    /* Destroy all remaining subpictures */
+    for (size_t i = 0; i < sys->channels.size; ++i)
+        spu_channel_Clean(sys, &sys->channels.data[i]);
+
+    vlc_vector_destroy(&sys->channels);
+
+    vlc_mutex_destroy(&sys->lock);
+
+    vlc_mutex_destroy(&sys->prerender.lock);
+    vlc_cond_destroy(&sys->prerender.cond);
+    vlc_cond_destroy(&sys->prerender.output_cond);
+    vlc_vector_clear(&sys->prerender.vector);
+    video_format_Clean(&sys->prerender.fmtdst);
+    video_format_Clean(&sys->prerender.fmtsrc);
+}
+
+/**
+ * Destroy the subpicture unit
+ *
+ * \param p_this the parent object which destroys the subpicture unit
+ */
+void spu_Destroy(spu_t *spu)
+{
+    spu_private_t *sys = spu->p;
+    /* stop prerendering */
+    vlc_cancel(sys->prerender.thread);
+    vlc_join(sys->prerender.thread, NULL);
+    /* delete filters and free resources */
+    spu_Cleanup(spu);
+    vlc_object_delete(spu);
+}
 
 #undef spu_Create
 /**
@@ -1421,6 +1686,7 @@ spu_t *spu_Create(vlc_object_t *object, vout_thread_t *vout)
 
     /* Load text and scale module */
     sys->text = SpuRenderCreateAndLoadText(spu);
+    vlc_mutex_init(&sys->textlock);
 
     /* XXX spu->p_scale is used for all conversion/scaling except yuvp to
      * yuva/rgba */
@@ -1437,58 +1703,31 @@ spu_t *spu_Create(vlc_object_t *object, vout_thread_t *vout)
      || !sys->scale_yuvp)
     {
         sys->vout = NULL;
-        spu_Destroy(spu);
+        spu_Cleanup(spu);
+        vlc_object_delete(spu);
         return NULL;
     }
     /* */
     sys->last_sort_date = -1;
     sys->vout = vout;
 
+    vlc_mutex_init(&sys->prerender.lock);
+    vlc_cond_init(&sys->prerender.cond);
+    vlc_cond_init(&sys->prerender.output_cond);
+    vlc_vector_init(&sys->prerender.vector);
+    video_format_Init(&sys->prerender.fmtdst, 0);
+    video_format_Init(&sys->prerender.fmtsrc, 0);
+    sys->prerender.p_processed = NULL;
+    sys->prerender.chroma_list[0] = 0;
+    sys->prerender.chroma_list[SPU_CHROMALIST_COUNT] = 0;
+    if(vlc_clone(&sys->prerender.thread, spu_PrerenderThread, spu, VLC_THREAD_PRIORITY_VIDEO))
+    {
+        spu_Cleanup(spu);
+        vlc_object_delete(spu);
+        spu = NULL;
+    }
+
     return spu;
-}
-
-/**
- * Destroy the subpicture unit
- *
- * \param p_this the parent object which destroys the subpicture unit
- */
-void spu_Destroy(spu_t *spu)
-{
-    spu_private_t *sys = spu->p;
-
-    if (sys->text)
-        FilterRelease(sys->text);
-
-    if (sys->scale_yuvp)
-        FilterRelease(sys->scale_yuvp);
-
-    if (sys->scale)
-        FilterRelease(sys->scale);
-
-    filter_chain_ForEach(sys->source_chain, SubSourceClean, spu);
-    if (sys->vout)
-        filter_chain_ForEach(sys->source_chain,
-                             SubSourceDelProxyCallbacks, sys->vout);
-    filter_chain_Delete(sys->source_chain);
-    free(sys->source_chain_current);
-    if (sys->vout)
-        filter_chain_ForEach(sys->filter_chain,
-                             SubFilterDelProxyCallbacks, sys->vout);
-    filter_chain_Delete(sys->filter_chain);
-    free(sys->filter_chain_current);
-    vlc_mutex_destroy(&sys->filter_chain_lock);
-    free(sys->source_chain_update);
-    free(sys->filter_chain_update);
-
-    /* Destroy all remaining subpictures */
-    for (size_t i = 0; i < sys->channels.size; ++i)
-        spu_channel_Clean(&sys->channels.data[i]);
-
-    vlc_vector_destroy(&sys->channels);
-
-    vlc_mutex_destroy(&sys->lock);
-
-    vlc_object_delete(spu);
 }
 
 /**
@@ -1502,9 +1741,11 @@ void spu_Attach(spu_t *spu, input_thread_t *input)
 
         spu->p->input = input;
 
+        vlc_mutex_lock(&spu->p->textlock);
         if (spu->p->text)
             FilterRelease(spu->p->text);
         spu->p->text = SpuRenderCreateAndLoadText(spu);
+        vlc_mutex_unlock(&spu->p->textlock);
     }
     vlc_mutex_unlock(&spu->p->lock);
 }
@@ -1515,6 +1756,7 @@ void spu_Attach(spu_t *spu, input_thread_t *input)
 void spu_Detach(spu_t *spu)
 {
     vlc_mutex_lock(&spu->p->lock);
+    spu_PrerenderPause(spu->p);
     spu->p->input = NULL;
     vlc_mutex_unlock(&spu->p->lock);
 }
@@ -1569,7 +1811,7 @@ void spu_PutSubpicture(spu_t *spu, subpicture_t *subpic)
                 filter_chain_ForEach(sys->filter_chain,
                                      SubFilterDelProxyCallbacks,
                                      sys->vout);
-            filter_chain_Reset(sys->filter_chain, NULL, NULL);
+            filter_chain_Clear(sys->filter_chain);
 
             filter_chain_AppendFromString(spu->p->filter_chain, chain_update);
             if (sys->vout)
@@ -1578,7 +1820,7 @@ void spu_PutSubpicture(spu_t *spu, subpicture_t *subpic)
                                      sys->vout);
         }
         else
-            filter_chain_Reset(sys->filter_chain, NULL, NULL);
+            filter_chain_Clear(sys->filter_chain);
 
         /* "sub-source"  was formerly "sub-filter", so now the "sub-filter"
         configuration may contain sub-filters or sub-sources configurations.
@@ -1627,13 +1869,29 @@ void spu_PutSubpicture(spu_t *spu, subpicture_t *subpic)
     /* */
     vlc_mutex_lock(&sys->lock);
     struct spu_channel *channel = spu_GetChannel(spu, subpic->i_channel);
-    if (spu_channel_Push(channel, subpic))
+
+
+    /* Convert all spu ts */
+    vlc_tick_t orgstart = subpic->i_start;
+    vlc_tick_t orgstop = subpic->i_stop;
+    if (channel->clock)
+    {
+        vlc_tick_t system_now = vlc_tick_now();
+        vlc_tick_t times[2] = { orgstart, orgstop };
+        vlc_clock_ConvertArrayToSystem(channel->clock, system_now,
+                                       times, 2, channel->rate);
+        subpic->i_start = times[0];
+        subpic->i_stop = times[1];
+    }
+
+    if (spu_channel_Push(channel, subpic, orgstart, orgstop))
     {
         vlc_mutex_unlock(&sys->lock);
         msg_Err(spu, "subpicture heap full");
         subpicture_Delete(subpic);
         return;
     }
+    spu_PrerenderEnqueue(sys, subpic);
     vlc_mutex_unlock(&sys->lock);
 }
 
@@ -1660,7 +1918,7 @@ subpicture_t *spu_Render(spu_t *spu,
                 filter_chain_ForEach(sys->source_chain,
                                      SubSourceDelProxyCallbacks,
                                      sys->vout);
-        filter_chain_Reset(sys->source_chain, NULL, NULL);
+        filter_chain_Clear(sys->source_chain);
 
         filter_chain_AppendFromString(spu->p->source_chain, chain_update);
         if (sys->vout)
@@ -1694,6 +1952,9 @@ subpicture_t *spu_Render(spu_t *spu,
         chroma_list = vlc_fourcc_IsYUV(fmt_dst->i_chroma) ? chroma_list_default_yuv
                                                           : chroma_list_default_rgb;
 
+    /* wake up prerenderer, we have some video size and chroma */
+    spu_PrerenderWake(sys, fmt_dst, fmt_src, chroma_list);
+
     vlc_mutex_lock(&sys->lock);
 
     size_t subpicture_count;
@@ -1712,23 +1973,19 @@ subpicture_t *spu_Render(spu_t *spu,
     for (size_t i = 0; i < subpicture_count; i++) {
         spu_render_entry_t *entry = &subpicture_array[i];
         subpicture_t *subpic = entry->subpic;
+
+        spu_PrerenderSync(sys, entry->subpic);
+
+        /* Update time to clock */
+        entry->subpic->i_start = entry->start;
+        entry->subpic->i_stop = entry->stop;
+
         if (!subpic->updater.pf_validate)
             continue;
 
-        const vlc_tick_t i_original_start = subpic->i_start;
-        const vlc_tick_t i_original_stop = subpic->i_stop;
-
-        /* The subpicture_updater_t API expect display date */
-        subpic->i_start = entry->start;
-        subpic->i_stop = entry->stop;
         subpicture_Update(subpic,
                           fmt_src, fmt_dst,
                           subpic->b_subtitle ? render_subtitle_date : system_now);
-
-        /* Restore original dates, otherwise, the next call to
-         * spu_SelectSubpictures() won't be able to select this subtitle */
-        subpic->i_start = i_original_start;
-        subpic->i_stop = i_original_stop;
     }
 
     /* Now order the subpicture array
@@ -1782,10 +2039,14 @@ ssize_t spu_RegisterChannel(spu_t *spu)
     return spu_RegisterChannelInternal(spu, NULL, NULL);
 }
 
-static void spu_channel_Clear(struct spu_channel *channel)
+static void spu_channel_Clear(spu_private_t *sys,
+                              struct spu_channel *channel)
 {
     for (size_t i = 0; i < channel->entries.size; i++)
+    {
+        spu_PrerenderCancel(sys, channel->entries.data[i].subpic);
         spu_channel_DeleteAt(channel, i);
+    }
 }
 
 void spu_ClearChannel(spu_t *spu, size_t channel_id)
@@ -1793,7 +2054,7 @@ void spu_ClearChannel(spu_t *spu, size_t channel_id)
     spu_private_t *sys = spu->p;
     vlc_mutex_lock(&sys->lock);
     struct spu_channel *channel = spu_GetChannel(spu, channel_id);
-    spu_channel_Clear(channel);
+    spu_channel_Clear(sys, channel);
     if (channel->clock)
     {
         vlc_clock_Reset(channel->clock);
@@ -1808,7 +2069,7 @@ void spu_UnregisterChannel(spu_t *spu, size_t channel_id)
 
     vlc_mutex_lock(&sys->lock);
     struct spu_channel *channel = spu_GetChannel(spu, channel_id);
-    spu_channel_Clean(channel);
+    spu_channel_Clean(sys, channel);
     vlc_vector_remove(&sys->channels, channel_id);
     vlc_mutex_unlock(&sys->lock);
 }

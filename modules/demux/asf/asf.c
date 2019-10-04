@@ -428,7 +428,7 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
         return VLC_SUCCESS;
 
     case DEMUX_SET_TIME:
-        if ( p_sys->p_fp &&
+        if ( !p_sys->p_fp ||
              ! ( p_sys->p_fp->i_flags & ASF_FILE_PROPERTIES_SEEKABLE ) )
             return VLC_EGENERIC;
 
@@ -509,8 +509,8 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
                                        i_query, args );
 
     case DEMUX_SET_POSITION:
-        if ( p_sys->p_fp &&
-             ! ( p_sys->p_fp->i_flags & ASF_FILE_PROPERTIES_SEEKABLE ) && !p_sys->b_index )
+        if ( !p_sys->p_fp ||
+             ( !( p_sys->p_fp->i_flags & ASF_FILE_PROPERTIES_SEEKABLE ) && !p_sys->b_index ) )
             return VLC_EGENERIC;
 
         SeekPrepare( p_demux );
@@ -533,8 +533,8 @@ static int Control( demux_t *p_demux, int i_query, va_list args )
         return VLC_SUCCESS;
 
     case DEMUX_CAN_SEEK:
-        if ( p_sys->p_fp &&
-             ! ( p_sys->p_fp->i_flags & ASF_FILE_PROPERTIES_SEEKABLE ) && !p_sys->b_index )
+        if ( !p_sys->p_fp ||
+             ( !( p_sys->p_fp->i_flags & ASF_FILE_PROPERTIES_SEEKABLE ) && !p_sys->b_index ) )
         {
             bool *pb_bool = va_arg( args, bool * );
             *pb_bool = false;
@@ -873,6 +873,10 @@ static int DemuxInit( demux_t *p_demux )
                                i_stream );
         p_esp = NULL;
 
+        /* Ignore duplicated streams numbers */
+        if (p_sys->track[p_sp->i_stream_number])
+            continue;
+
         tk = p_sys->track[p_sp->i_stream_number] = malloc( sizeof( asf_track_t ) );
         if (!tk)
             goto error;
@@ -1101,7 +1105,7 @@ static int DemuxInit( demux_t *p_demux )
                 {
                     GET_CHECKED( fmt.i_extra, __MIN( GetWLE( &p_data[16] ),
                                          p_sp->i_type_specific_data_length -
-                                         sizeof( WAVEFORMATEX ) ),
+                                         sizeof( WAVEFORMATEX ) - 64),
                                  INT_MAX, uint32_t );
                     fmt.p_extra = malloc( fmt.i_extra );
                     if ( fmt.p_extra )
@@ -1387,6 +1391,7 @@ static void DemuxEnd( demux_t *p_demux )
     {
         ASF_FreeObjectRoot( p_demux->s, p_sys->p_root );
         p_sys->p_root = NULL;
+        p_sys->p_fp = NULL;
     }
     if( p_sys->meta )
     {

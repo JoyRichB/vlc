@@ -24,6 +24,8 @@
 #include "util/input_models.hpp"
 #include "adapters/var_choice_model.hpp"
 
+#include <QTimer>
+
 class PlayerControllerPrivate {
     Q_DISABLE_COPY(PlayerControllerPrivate)
 public:
@@ -44,6 +46,7 @@ public:
     void UpdateVouts(vout_thread_t **vouts, size_t i_vouts);
     void UpdateTrackSelection(vlc_es_id_t *trackid, bool selected);
     void UpdateSpuOrder(vlc_es_id_t *es_id, enum vlc_vout_order spu_order);
+    int interpolateTime(vlc_tick_t system_now);
 
     ///call function @a fun on object thread
     template <typename Fun>
@@ -57,11 +60,6 @@ public:
         QObject::connect(&src, &QObject::destroyed, q, std::forward<Fun>(fun), Qt::QueuedConnection);
 #endif
     }
-
-public slots:
-    void menusUpdateAudio( const QString& );
-    void AtoBLoop( float, VLCTick, int );
-
 
 public:
     intf_thread_t           *p_intf;
@@ -80,6 +78,7 @@ public:
     PlayerController::MediaStopAction m_mediaStopAction = PlayerController::MEDIA_STOPPED_CONTINUE;
 
     VLCTick      m_time = 0;
+    VLCTick      m_remainingTime = 0;
     float           m_position = 0.f;
     VLCTick      m_length= 0;
 
@@ -96,6 +95,13 @@ public:
     VLCTick      m_subtitleDelay = 0;
     VLCTick      m_secondarySubtitleDelay = 0;
     float        m_subtitleFPS = 1.0;
+
+    //timer
+    vlc_player_timer_id* m_player_timer = nullptr;
+    vlc_player_timer_id* m_player_timer_smpte = nullptr;
+    struct vlc_player_timer_point m_player_time;
+    QTimer m_position_timer;
+    QTimer m_time_timer;
 
     //title/chapters/menu
     TitleListModel m_titleList;
@@ -131,6 +137,7 @@ public:
     VLCVarChoiceModel m_audioStereoMode;
     float           m_volume = 0.f;
     bool            m_muted = false;
+    AudioDeviceModel m_audioDeviceList;
     VLCVarChoiceModel m_audioVisualization;
 
     //misc

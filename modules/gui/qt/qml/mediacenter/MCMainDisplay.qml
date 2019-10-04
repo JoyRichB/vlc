@@ -25,6 +25,7 @@ import "qrc:///style/"
 import "qrc:///qml/"
 import "qrc:///utils/" as Utils
 import "qrc:///playlist/" as PL
+import "qrc:///player/" as Player
 
 Utils.NavigableFocusScope {
     id: root
@@ -72,10 +73,10 @@ Utils.NavigableFocusScope {
         Component.onCompleted: {
             pageModel.forEach(function(e) {
                 append({
-                   displayText: e.displayText,
-                   icon: e.icon,
-                   name: e.name,
-               })
+                           displayText: e.displayText,
+                           icon: e.icon,
+                           name: e.name,
+                       })
             })
         }
     }
@@ -88,7 +89,12 @@ Utils.NavigableFocusScope {
             focus: true
             id: medialibId
             anchors.fill: parent
-            onActionRight: rootWindow.playlistVisible = true
+            onActionRight: {
+                if (rootWindow.playlistDocked) {
+                    rootWindow.playlistVisible = true
+                    playlist.gainFocus(medialibId)
+                }
+            }
 
             ColumnLayout {
                 id: column
@@ -108,6 +114,8 @@ Utils.NavigableFocusScope {
 
                     focus: true
                     model: root.tabModel
+
+                    playlistWidget: playlist
 
                     onItemClicked: {
                         sourcesBanner.subTabModel = undefined
@@ -130,11 +138,8 @@ Utils.NavigableFocusScope {
                         contentModel = stackView.currentItem.contentModel
                     }
 
-                    onActionDown: stackViewZone.focus = true
-                    onActionLeft: root.actionLeft(index)
-                    onActionRight: root.actionRight(index)
-                    onActionUp: root.actionUp(index)
-                    onActionCancel: root.actionCancel(index)
+                    navigationParent: root
+                    navigationDown: function() { stackView.focus = true }
                 }
 
                 Item {
@@ -167,7 +172,7 @@ Utils.NavigableFocusScope {
                         visible: stackViewZone.focus
                         anchors.fill: stackViewZone
                         z: 42
-                        color: "#22ff950d"
+                        color: VLCStyle.colors.setColorAlpha(VLCStyle.colors.accent, 0.08)
                         border.width: VLCStyle.selectedBorder
                         border.color: VLCStyle.colors.accent
                     }
@@ -191,7 +196,7 @@ Utils.NavigableFocusScope {
                                 })
                         }
 
-                        Utils.Drawer {
+                        Utils.DrawerExt {
                             z: 1
                             id: playlist
                             anchors {
@@ -200,12 +205,15 @@ Utils.NavigableFocusScope {
                                 bottom: parent.bottom
                             }
                             focus: false
-                            expandHorizontally: true
+                            edge: Utils.DrawerExt.Edges.Right
+
+                            property var previousFocus: undefined
 
                             state: (rootWindow.playlistDocked && rootWindow.playlistVisible) ? "visible" : "hidden"
-                            onVisibleChanged: {
-                                if (playlist.visible)
-                                    playlist.forceActiveFocus()
+
+                            function gainFocus(previous) {
+                                playlist.previousFocus = previous
+                                playlist.forceActiveFocus()
                             }
                             component: Rectangle {
                                 color: VLCStyle.colors.setColorAlpha(VLCStyle.colors.banner, 0.9)
@@ -224,28 +232,27 @@ Utils.NavigableFocusScope {
                                         focus: true
                                         anchors.fill: parent
                                         onActionLeft: playlist.closeAndFocus(stackView.currentItem)
-                                        onActionCancel: playlist.closeAndFocus(stackView.currentItem)
-                                        onActionUp: playlist.closeAndFocus(sourcesBanner)
+                                        onActionCancel: playlist.closeAndFocus(playlist.previousFocus)
+                                        onActionUp: playlist.closeAndFocus(playlist.previousFocus)
                                     }
                                 }
                             }
                             function closeAndFocus(item){
+                                rootWindow.playlistVisible = false
                                 if (!item)
                                     return
-
-                                rootWindow.playlistVisible = false
                                 item.forceActiveFocus()
                             }
                         }
                     }
                 }
 
-                MiniPlayer {
+                Player.MiniPlayer {
                     id: miniPlayer
 
-                    onActionUp: stackViewZone.focus = true
+                    onActionUp: stackView.focus = true
                     onActionCancel: sourcesBanner.focus = true
-                    onActionDown: medialibId.actionDown(index)
+                    onActionDown: medialibId.navigationDown(index)
                 }
             }
 
@@ -255,14 +262,20 @@ Utils.NavigableFocusScope {
 
                 onActionUp: sourcesBanner.focus = true
                 onActionCancel: stackViewZone.focus = true
-                onActionLeft: medialibId.actionLeft(index)
-                onActionRight: medialibId.actionRight(index)
+                onActionLeft: medialibId.navigationLeft(index)
+                onActionRight: medialibId.navigationRight(index)
                 onActionDown: {
                     if (miniPlayer.expanded)
                         miniPlayer.focus = true
                     else
-                        medialibId.actionDown(index)
+                        medialibId.navigationDown(index)
                 }
+            }
+
+            Utils.ScanProgressBar {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
             }
         }
 

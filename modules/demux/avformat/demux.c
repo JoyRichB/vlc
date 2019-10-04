@@ -167,6 +167,58 @@ static void get_rotation(es_format_t *fmt, AVStream *s)
     }
 }
 
+static AVDictionary * BuildAVOptions( demux_t *p_demux )
+{
+    char *psz_opts = var_InheritString( p_demux, "avformat-options" );
+    AVDictionary *options = NULL;
+    if( psz_opts )
+    {
+        vlc_av_get_options( psz_opts, &options );
+        free( psz_opts );
+    }
+    return options;
+}
+
+static void FreeUnclaimedOptions( demux_t *p_demux, AVDictionary **pp_dict )
+{
+    AVDictionaryEntry *t = NULL;
+    while ((t = av_dict_get(*pp_dict, "", t, AV_DICT_IGNORE_SUFFIX))) {
+        msg_Err( p_demux, "Unknown option \"%s\"", t->key );
+    }
+    av_dict_free(pp_dict);
+}
+
+static void FindStreamInfo( demux_t *p_demux, AVDictionary *options )
+{
+    demux_sys_t *p_sys = p_demux->p_sys;
+    unsigned nb_streams = p_sys->ic->nb_streams;
+
+    AVDictionary *streamsoptions[nb_streams ? nb_streams : 1];
+
+    streamsoptions[0] = options;
+    for ( unsigned i = 1; i < nb_streams; i++ )
+    {
+        streamsoptions[i] = NULL;
+        if( streamsoptions[0] )
+            av_dict_copy( &streamsoptions[i], streamsoptions[0], 0 );
+    }
+
+    vlc_avcodec_lock(); /* avformat calls avcodec behind our back!!! */
+    int error = avformat_find_stream_info( p_sys->ic, streamsoptions );
+    vlc_avcodec_unlock();
+
+    FreeUnclaimedOptions( p_demux, &streamsoptions[0] );
+    for ( unsigned i = 1; i < nb_streams; i++ ) {
+        av_dict_free( &streamsoptions[i] );
+    }
+
+    if( error < 0 )
+    {
+        msg_Warn( p_demux, "Could not find stream info: %s",
+                  vlc_strerror_c(AVUNERROR(error)) );
+    }
+}
+
 static int avformat_ProbeDemux( vlc_object_t *p_this,
                                 AVInputFormat **pp_fmt, const char *psz_url )
 {
@@ -323,13 +375,16 @@ int avformat_OpenDemux( vlc_object_t *p_this )
         return VLC_ENOMEM;
     }
 
-    p_sys->ic->pb->seekable = b_can_seek ? AVIO_SEEKABLE_NORMAL : 0;
-    error = avformat_open_input(&p_sys->ic, psz_url, p_sys->fmt, NULL);
+    /* get all options, open_input will consume its own options from the dict */
+    AVDictionary *options = BuildAVOptions( p_demux );
 
+    p_sys->ic->pb->seekable = b_can_seek ? AVIO_SEEKABLE_NORMAL : 0;
+    error = avformat_open_input( &p_sys->ic, psz_url, p_sys->fmt, &options );
     if( error < 0 )
     {
         msg_Err( p_demux, "Could not open %s: %s", psz_url,
                  vlc_strerror_c(AVUNERROR(error)) );
+        av_dict_free( &options );
         av_free( pb->buffer );
         av_free( pb );
         p_sys->ic = NULL;
@@ -337,33 +392,10 @@ int avformat_OpenDemux( vlc_object_t *p_this )
         return VLC_EGENERIC;
     }
 
-    char *psz_opts = var_InheritString( p_demux, "avformat-options" );
-    unsigned nb_streams = p_sys->ic->nb_streams;
+    /* pass remaining options for as streams options */
+    FindStreamInfo( p_demux, options );
 
-    AVDictionary *options[nb_streams ? nb_streams : 1];
-    options[0] = NULL;
-    for (unsigned i = 1; i < nb_streams; i++)
-        options[i] = NULL;
-    if (psz_opts) {
-        vlc_av_get_options(psz_opts, &options[0]);
-        for (unsigned i = 1; i < nb_streams; i++) {
-            av_dict_copy(&options[i], options[0], 0);
-        }
-        free(psz_opts);
-    }
-    vlc_avcodec_lock(); /* avformat calls avcodec behind our back!!! */
-    error = avformat_find_stream_info( p_sys->ic, options );
-    vlc_avcodec_unlock();
-    AVDictionaryEntry *t = NULL;
-    while ((t = av_dict_get(options[0], "", t, AV_DICT_IGNORE_SUFFIX))) {
-        msg_Err( p_demux, "Unknown option \"%s\"", t->key );
-    }
-    av_dict_free(&options[0]);
-    for (unsigned i = 1; i < nb_streams; i++) {
-        av_dict_free(&options[i]);
-    }
-
-    nb_streams = p_sys->ic->nb_streams; /* it may have changed */
+    unsigned nb_streams = p_sys->ic->nb_streams; /* it may have changed */
     if( !nb_streams )
     {
         msg_Err( p_demux, "No streams found");

@@ -29,7 +29,7 @@ Utils.ListItem {
     id: item
 
     width: root.width
-    height: VLCStyle.icon_normal
+    height: VLCStyle.icon_normal + VLCStyle.margin_small
 
     focus: true
 
@@ -42,30 +42,26 @@ Utils.ListItem {
     }
     line1: model.name || qsTr("Unknown share")
     line2: model.mrl
-    imageText: model.type === MLNetworkModel.TYPE_SHARE ? model.protocol : ""
+    imageText: (model.type !== MLNetworkModel.TYPE_DIRECTORY && model.type !== MLNetworkModel.TYPE_NODE) ? model.protocol : ""
+
+    showContextButton: true
+    onContextMenuButtonClicked: {
+        contextMenu.model = model
+        contextMenu.popup(menuParent,contextMenu.width,0)
+    }
 
     onItemClicked : {
+        if (key == Qt.RightButton){
+            contextMenu.model = model
+            contextMenu.popup(this)
+        }
         delegateModel.updateSelection( modifier, view.currentIndex, index )
-        view.currentIndex = index
+        view[viewIndexPropertyName] = index
         this.forceActiveFocus()
     }
     onItemDoubleClicked: {
         history.push( ["mc", "network", { tree: model.tree } ], History.Go)
     }
 
-    Component {
-        id: actionAdd
-        Utils.IconToolButton {
-            size: VLCStyle.icon_normal
-            text: model.indexed ? VLCIcons.remove : VLCIcons.add
-
-            focus: true
-
-            highlightColor: activeFocus ? VLCStyle.colors.buttonText : "transparent"
-
-            onClicked: model.indexed = !model.indexed
-        }
-    }
-
-    actionButtons: model.can_index ? [actionAdd] : []
+    actionButtons: []
 }

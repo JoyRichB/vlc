@@ -59,6 +59,7 @@ struct aout_sys_common
     block_t             *p_out_chain;
     block_t             **pp_out_last;
     uint64_t            i_render_host_time;
+    uint64_t            i_first_render_host_time;
     uint32_t            i_render_frames;
 
     vlc_sem_t           flush_sem;
@@ -81,7 +82,7 @@ struct aout_sys_common
     vlc_tick_t          i_dev_latency_us;
 };
 
-void ca_Open(audio_output_t *p_aout);
+int ca_Open(audio_output_t *p_aout);
 
 void ca_Close(audio_output_t *p_aout);
 

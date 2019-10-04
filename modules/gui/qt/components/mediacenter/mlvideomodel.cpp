@@ -27,6 +27,14 @@ enum Role {
     VIDEO_DURATION,
     VIDEO_PROGRESS,
     VIDEO_PLAYCOUNT,
+    VIDEO_RESOLUTION,
+    VIDEO_CHANNEL,
+    VIDEO_POSITION,
+    VIDEO_MRL,
+    VIDEO_VIDEO_TRACK,
+    VIDEO_AUDIO_TRACK,
+
+    VIDEO_TITLE_FIRST_SYMBOL,
 };
 
 }
@@ -62,6 +70,21 @@ QVariant MLVideoModel::data(const QModelIndex& index, int role) const
             return QVariant::fromValue( video->getProgress() );
         case VIDEO_PLAYCOUNT:
             return QVariant::fromValue( video->getPlayCount() );
+        case VIDEO_RESOLUTION:
+            return QVariant::fromValue( video->getResolutionName() );
+        case VIDEO_CHANNEL:
+            return QVariant::fromValue( video->getChannel() );
+        case VIDEO_POSITION:
+            return QVariant::fromValue( video->getSavedPosition() );
+        case VIDEO_MRL:
+            return QVariant::fromValue( video->getMRL() );
+        case VIDEO_VIDEO_TRACK:
+            return QVariant::fromValue( video->getVideoDesc() );
+        case VIDEO_AUDIO_TRACK:
+            return QVariant::fromValue( video->getAudioDesc() );
+        case VIDEO_TITLE_FIRST_SYMBOL:
+            return QVariant::fromValue( getFirstSymbol( video->getTitle() ) );
+
         default:
             return {};
     }
@@ -76,6 +99,13 @@ QHash<int, QByteArray> MLVideoModel::roleNames() const
         { VIDEO_DURATION, "duration" },
         { VIDEO_PROGRESS, "progress" },
         { VIDEO_PLAYCOUNT, "playcount" },
+        { VIDEO_RESOLUTION, "resolution_name" },
+        { VIDEO_CHANNEL, "channel" },
+        { VIDEO_POSITION, "saved_position" },
+        { VIDEO_MRL, "mrl" },
+        { VIDEO_AUDIO_TRACK, "audioDesc" },
+        { VIDEO_VIDEO_TRACK, "videoDesc" },
+        { VIDEO_TITLE_FIRST_SYMBOL, "title_first_symbol"},
     };
 }
 
@@ -117,15 +147,17 @@ vlc_ml_sorting_criteria_t MLVideoModel::nameToCriteria(QByteArray name) const
     return M_names_to_criteria.value(name, VLC_ML_SORTING_DEFAULT);
 }
 
+QByteArray MLVideoModel::criteriaToName(vlc_ml_sorting_criteria_t criteria) const
+{
+    return M_names_to_criteria.key(criteria, "");
+}
+
 void MLVideoModel::onVlcMlEvent(const vlc_ml_event_t* event)
 {
     switch (event->i_type)
     {
         case VLC_ML_EVENT_MEDIA_ADDED:
         case VLC_ML_EVENT_MEDIA_UPDATED:
-            if ( event->modification.p_media->i_type == VLC_ML_MEDIA_TYPE_VIDEO )
-                m_need_reset = true;
-            break;
         case VLC_ML_EVENT_MEDIA_DELETED:
             m_need_reset = true;
             break;
@@ -133,4 +165,11 @@ void MLVideoModel::onVlcMlEvent(const vlc_ml_event_t* event)
             break;
     }
     MLBaseModel::onVlcMlEvent( event );
+}
+QString MLVideoModel::getFirstSymbol( const QString& str )
+{
+    QString ret("#");
+    if ( str.length() > 0 && str[0].isLetter() )
+        ret = str[0].toUpper();
+    return ret;
 }

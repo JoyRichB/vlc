@@ -68,6 +68,7 @@ class MainInterface : public QVLCMW
     Q_PROPERTY(bool interfaceAlwaysOnTop READ isInterfaceAlwaysOnTop WRITE setInterfaceAlwaysOnTop NOTIFY interfaceAlwaysOnTopChanged)
     Q_PROPERTY(bool interfaceFullScreen READ isInterfaceFullScreen WRITE setInterfaceFullScreen NOTIFY interfaceFullScreenChanged)
     Q_PROPERTY(bool hasEmbededVideo READ hasEmbededVideo NOTIFY hasEmbededVideoChanged)
+    Q_PROPERTY(bool showRemainingTime READ isShowRemainingTime WRITE setShowRemainingTime NOTIFY showRemainingTimeChanged)
     Q_PROPERTY(VLCVarChoiceModel* extraInterfaces READ getExtraInterfaces CONSTANT)
 
 public:
@@ -81,6 +82,7 @@ public:
     bool getVideo( struct vout_window_t * );
 private:
     bool m_hasEmbededVideo = false;
+    bool m_showRemainingTime = false;
     VLCVarChoiceModel* m_extraInterfaces;
     std::atomic_flag videoActive;
     static int enableVideo( struct vout_window_t *,
@@ -93,7 +95,9 @@ private:
     static void requestVideoFullScreen( struct vout_window_t *, const char * );
 
 public:
+    QQmlContext* getRootCtx() { return mediacenterView->rootContext(); }
     QQuickWindow* getRootQuickWindow();
+    QQmlEngine* getEngine(){ return mediacenterView->engine(); }
     VideoSurfaceProvider* getVideoSurfaceProvider() const;
 
     /* Getters */
@@ -117,6 +121,7 @@ public:
     bool isPlaylistVisible() { return playlistVisible; }
     bool isInterfaceAlwaysOnTop() { return b_interfaceOnTop; }
     bool hasEmbededVideo() { return m_hasEmbededVideo; }
+    inline bool isShowRemainingTime() const  { return m_showRemainingTime; }
     QList<QQmlError> qmlErrors() const;
 
 protected:
@@ -189,7 +194,6 @@ protected:
     bool                 playlistVisible;       ///< Is the playlist visible ?
 //    bool                 videoIsActive;       ///< Having a video now / THEMIM->hasV
 //    bool                 b_visualSelectorEnabled;
-    bool                 b_plDocked;            ///< Is the playlist docked ?
 
     bool                 b_hasPausedWhenMinimized;
 
@@ -204,6 +208,7 @@ public slots:
     void setPlaylistDocked( bool );
     void setPlaylistVisible( bool );
     void setInterfaceAlwaysOnTop( bool );
+    void setShowRemainingTime( bool );
 
     void emitBoss();
     void emitRaise();
@@ -211,7 +216,6 @@ public slots:
     void popupMenu( bool show );
 
     virtual void reloadPrefs();
-    void toolBarConfUpdated();
     VLCVarChoiceModel* getExtraInterfaces();
 
 protected slots:
@@ -256,6 +260,8 @@ signals:
     void interfaceAlwaysOnTopChanged(bool);
     void interfaceFullScreenChanged(bool);
     void hasEmbededVideoChanged(bool);
+    void toolBarConfUpdated();
+    void showRemainingTimeChanged(bool);
 };
 
 #endif

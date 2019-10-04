@@ -81,14 +81,16 @@ static char* CreateCacheKey( input_item_t* item )
 
     char const* artist = vlc_meta_Get( item->p_meta, vlc_meta_Artist );
     char const* album = vlc_meta_Get( item->p_meta, vlc_meta_Album );
+    char const *date = vlc_meta_Get( item->p_meta, vlc_meta_Date );
     char* key;
 
     /**
      * Simple concatenation of artist and album can lead to the same key
      * for entities that should not have such. Imagine { dogs, tick } and
      * { dog, stick } */
-    if( !artist || !album || asprintf( &key, "%s:%zu:%s:%zu",
-          artist, strlen( artist ), album, strlen( album ) ) < 0 )
+    if( !artist || !album || asprintf( &key, "%s:%zu:%s:%zu:%s",
+          artist, strlen( artist ), album, strlen( album ),
+          date ? date : "0000" ) < 0 )
     {
         key = NULL;
     }
@@ -292,7 +294,7 @@ static void SearchLocal( input_fetcher_t* fetcher, struct fetcher_request* req )
         return; /* done */
 
     if( var_InheritBool( fetcher->owner, "metadata-network-access" ) ||
-        req->options & META_REQUEST_OPTION_SCOPE_NETWORK )
+        req->options & META_REQUEST_OPTION_FETCH_NETWORK )
     {
         if( background_worker_Push( fetcher->network, req, NULL, 0 ) )
             NotifyArtFetchEnded(req, false);
@@ -449,6 +451,7 @@ int input_fetcher_Push( input_fetcher_t* fetcher, input_item_t* item,
     input_item_meta_request_option_t options,
     const input_fetcher_callbacks_t *cbs, void *cbs_userdata )
 {
+    assert(options & META_REQUEST_OPTION_FETCH_ANY);
     struct fetcher_request* req = malloc( sizeof *req );
 
     if( unlikely( !req ) )
@@ -462,7 +465,9 @@ int input_fetcher_Push( input_fetcher_t* fetcher, input_item_t* item,
     vlc_atomic_rc_init( &req->rc );
     input_item_Hold( item );
 
-    if( background_worker_Push( fetcher->local, req, NULL, 0 ) )
+    struct background_worker* worker =
+        options & META_REQUEST_OPTION_FETCH_LOCAL ? fetcher->local : fetcher->network;
+    if( background_worker_Push( worker, req, NULL, 0 ) )
         NotifyArtFetchEnded(req, false);
 
     RequestRelease( req );

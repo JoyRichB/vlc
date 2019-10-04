@@ -1,5 +1,5 @@
 /*****************************************************************************
- * VLCLibraryAlbumTableself.m: MacOS X interface module
+ * VLCLibraryAlbumTableCellView.m: MacOS X interface module
  *****************************************************************************
  * Copyright (C) 2019 VLC authors and VideoLAN
  *
@@ -32,6 +32,8 @@
 
 NSString *VLCAudioLibraryCellIdentifier = @"VLCAudioLibraryCellIdentifier";
 const CGFloat VLCLibraryTracksRowHeight = 50.;
+const CGFloat VLCLibraryAlbumTableCellViewDefaultHeight = 168.;
+const CGFloat LayoutSpacer;
 
 @interface VLCLibraryTracksDataSource : NSObject <NSTableViewDataSource, NSTableViewDelegate>
 
@@ -43,13 +45,46 @@ const CGFloat VLCLibraryTracksRowHeight = 50.;
 {
     VLCLibraryController *_libraryController;
     VLCLibraryTracksDataSource *_tracksDataSource;
+    NSTableView *_tracksTableView;
 }
 @end
 
 @implementation VLCLibraryAlbumTableCellView
 
++ (CGFloat)defaultHeight
+{
+    return VLCLibraryAlbumTableCellViewDefaultHeight;
+}
+
++ (CGFloat)heightForAlbum:(VLCMediaLibraryAlbum *)album
+{
+    if (!album) {
+        return [VLCLibraryAlbumTableCellView defaultHeight];
+    }
+
+    size_t numberOfTracks = album.numberOfTracks;
+    return [VLCLibraryAlbumTableCellView defaultHeight] + numberOfTracks * VLCLibraryTracksRowHeight;
+}
+
 - (void)awakeFromNib
 {
+    CGRect frame = self.frame;
+    NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"theOnlyColumn"];
+    column.width = frame.size.width - LayoutSpacer * 2.;
+    _tracksTableView = [[NSTableView alloc] initWithFrame:CGRectMake(LayoutSpacer, 14., frame.size.width - LayoutSpacer * 2., 0.)];
+    _tracksTableView.rowHeight = VLCLibraryTracksRowHeight;
+    [_tracksTableView addTableColumn:column];
+    _tracksTableView.translatesAutoresizingMaskIntoConstraints = NO;
+    _tracksDataSource = [[VLCLibraryTracksDataSource alloc] init];
+    _tracksTableView.dataSource = _tracksDataSource;
+    _tracksTableView.delegate = _tracksDataSource;
+    _tracksTableView.doubleAction = @selector(tracksTableViewDoubleClickAction:);
+    _tracksTableView.target = self;
+    [self addSubview:_tracksTableView];
+    NSDictionary *dict = NSDictionaryOfVariableBindings(_tracksTableView, _representedImageView);
+    [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|-20-[_tracksTableView]-20-|" options:0 metrics:0 views:dict]];
+    [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|-20-[_representedImageView]-14-[_tracksTableView]-14-|" options:0 metrics:0 views:dict]];
+
     self.albumNameTextField.font = [NSFont VLClibraryLargeCellTitleFont];
     self.yearTextField.font = [NSFont VLClibraryLargeCellTitleFont];
     self.summaryTextField.font = [NSFont VLClibraryLargeCellSubtitleFont];
@@ -91,7 +126,16 @@ const CGFloat VLCLibraryTracksRowHeight = 50.;
     if (_representedAlbum.year > 0) {
         self.yearTextField.intValue = _representedAlbum.year;
     }
-    self.summaryTextField.stringValue = _representedAlbum.summary;
+
+    if (_representedAlbum.summary.length > 0) {
+        self.summaryTextField.stringValue = _representedAlbum.summary;
+    } else {
+        if (_representedAlbum.numberOfTracks > 1) {
+            self.summaryTextField.stringValue = [NSString stringWithFormat:_NS("%i tracks"), _representedAlbum.numberOfTracks];
+        } else {
+            self.summaryTextField.stringValue = _NS("1 track");
+        }
+    }
 
     NSImage *image;
     if (_representedAlbum.artworkMRL.length > 0) {
@@ -102,11 +146,22 @@ const CGFloat VLCLibraryTracksRowHeight = 50.;
     }
     self.representedImageView.image = image;
 
-    self.tracksTableView.rowHeight = VLCLibraryTracksRowHeight;
-    _tracksDataSource = [[VLCLibraryTracksDataSource alloc] init];
     _tracksDataSource.representedAlbum = _representedAlbum;
-    self.tracksTableView.dataSource = _tracksDataSource;
-    self.tracksTableView.delegate = _tracksDataSource;
+    [_tracksTableView reloadData];
+}
+
+- (void)tracksTableViewDoubleClickAction:(id)sender
+{
+    if (!_libraryController) {
+        _libraryController = [[VLCMain sharedInstance] libraryController];
+    }
+
+    NSArray *tracks = [_representedAlbum tracksAsMediaItems];
+    NSUInteger trackCount = tracks.count;
+    NSInteger clickedRow = _tracksTableView.clickedRow;
+    if (clickedRow < trackCount) {
+        [_libraryController appendItemToPlaylist:tracks[_tracksTableView.clickedRow] playImmediately:YES];
+    }
 }
 
 @end

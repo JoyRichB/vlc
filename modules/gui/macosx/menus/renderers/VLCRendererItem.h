@@ -1,7 +1,7 @@
 /*****************************************************************************
  * VLCRendererItem.h: Wrapper class for vlc_renderer_item_t
  *****************************************************************************
- * Copyright (C) 2016 VLC authors and VideoLAN
+ * Copyright (C) 2016, 2019 VLC authors and VideoLAN
  *
  * Authors: Marvin Scholz <epirat07 at gmail dot com>
  *
@@ -23,6 +23,8 @@
 #import <Foundation/Foundation.h>
 
 #include <vlc_common.h>
+
+NS_ASSUME_NONNULL_BEGIN
 
 @class VLCPlayerController;
 
@@ -47,14 +49,21 @@
 /**
  The name of the renderer item
  */
-- (NSString*)name;
+@property (readonly) NSString *name;
 
-- (NSString*)identifier;
+@property (readonly) NSString *identifier;
+
+/**
+ * the type of renderer item
+ */
+@property (readonly) NSString *type;
+
+@property (readonly) NSString *userReadableType;
 
 /**
  The iconURI of the renderer item
  */
-- (NSString*)iconURI;
+@property (readonly) NSString *iconURI;
 
 /**
  Flags indicating capabilities of the renderer item
@@ -63,7 +72,7 @@
     \li \c VLC_RENDERER_CAN_AUDIO
     \li \c VLC_RENDERER_CAN_VIDEO
  */
-- (int)capabilityFlags;
+@property (readonly) int capabilityFlags;
 
 /**
  Sets the renderer represented by this \c VLCRendererItem as active
@@ -74,3 +83,5 @@
 - (void)setRendererForPlayerController:(VLCPlayerController *)playerController;
 
 @end
+
+NS_ASSUME_NONNULL_END

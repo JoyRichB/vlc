@@ -249,9 +249,22 @@ static uint32_t stream_ReadU32( stream_t *s, void *p_read, uint32_t i_toread )
     return i_return;
 }
 
-static inline bool MP4_isMetadata(const mp4_track_t *tk)
+static int MP4_reftypeToFlag( vlc_fourcc_t i_reftype )
 {
-    return tk->as_reftype != 0 && tk->as_reftype != ATOM_subt;
+    switch( i_reftype )
+    {
+        case ATOM_chap:
+            return USEAS_CHAPTERS;
+        case VLC_FOURCC('t','m','c','d'):
+            return USEAS_TIMECODE;
+        default:
+            return USEAS_NONE;
+    }
+}
+
+static bool MP4_isMetadata( const mp4_track_t *tk )
+{
+    return tk->i_use_flags & (USEAS_CHAPTERS|USEAS_TIMECODE);
 }
 
 static MP4_Box_t * MP4_GetTrexByTrackID( MP4_Box_t *p_moov, const uint32_t i_id )
@@ -504,61 +517,64 @@ static int CreateTracks( demux_t *p_demux, unsigned i_tracks )
 static block_t * MP4_EIA608_Convert( block_t * p_block )
 {
     /* Rebuild codec data from encap */
-    size_t i_copied = 0;
-    size_t i_remaining = __MIN(p_block->i_buffer, INT64_MAX / 3);
-    uint32_t i_bytes = 0;
-    block_t *p_newblock;
+    block_t *p_newblock = NULL;
 
+    assert(p_block->i_buffer <= SSIZE_MAX);
     /* always need at least 10 bytes (atom size+header+1pair)*/
-    i_bytes = GetDWBE(p_block->p_buffer);
+    if (p_block->i_buffer < 8)
+        goto out;
 
-    if (10 < i_bytes || i_bytes < i_remaining ||
-        memcmp("cdat", &p_block->p_buffer[4], 4) ||
-        (p_newblock = block_Alloc(i_remaining * 3 - 8)) == NULL)
-    {
-        p_block->i_buffer = 0;
-        return p_block;
-    }
+    uint_fast32_t cdat_size = GetDWBE(p_block->p_buffer) - 8;
+    if (cdat_size > p_block->i_buffer)
+        goto out;
 
-    uint8_t *p_write = p_newblock->p_buffer;
-    uint8_t *p_read = &p_block->p_buffer[8];
-    i_bytes -= 8;
-    i_remaining -= 8;
+    const uint8_t *cdat = p_block->p_buffer + 8;
+    if (memcmp(cdat - 4, "cdat", 4) != 0)
+        goto out;
 
-    do
-    {
-        p_write[i_copied++] = CC_PKT_BYTE0(0); /* cc1 == field 0 */
-        p_write[i_copied++] = p_read[0];
-        p_write[i_copied++] = p_read[1];
-        p_read += 2;
-        i_bytes -= 2;
-        i_remaining -= 2;
-    } while( i_bytes >= 2 );
+    p_block->p_buffer += cdat_size;
+    p_block->i_buffer -= cdat_size;
+    cdat_size &= ~1;
 
     /* cdt2 is optional */
-    i_bytes = GetDWBE(p_read);
+    uint_fast32_t cdt2_size = 0;
+    const uint8_t *cdt2;
 
-    if (10 <= i_bytes && i_bytes <= i_remaining &&
-        !memcmp("cdt2", &p_read[4], 4))
-    {
-        p_read += 8;
-        i_bytes -= 8;
-        i_remaining -= 8;
-        do
-        {
-            p_write[i_copied++] = CC_PKT_BYTE0(0); /* cc1 == field 0 */
-            p_write[i_copied++] = p_read[0];
-            p_write[i_copied++] = p_read[1];
-            p_read += 2;
-            i_bytes -= 2;
-        } while( i_bytes >= 2 );
+    if (p_block->i_buffer >= 8) {
+        size_t size = GetDWBE(p_block->p_buffer) - 8;
+
+        if (size <= p_block->i_buffer) {
+            cdt2 = p_block->p_buffer + 8;
+
+            if (memcmp(cdt2 - 4, "cdt2", 4) == 0)
+                cdt2_size = size & ~1;
+        }
+    }
+
+    p_newblock = block_Alloc((cdat_size + cdt2_size) / 2 * 3);
+    if (unlikely(p_newblock == NULL))
+        goto out;
+
+    uint8_t *out = p_newblock->p_buffer;
+
+    while (cdat_size > 0) {
+         *(out++) = CC_PKT_BYTE0(0); /* cc1 == field 0 */
+         *(out++) = *(cdat++);
+         *(out++) = *(cdat++);
+         cdat_size -= 2;
+    }
+
+    while (cdt2_size > 0) {
+         *(out++) = CC_PKT_BYTE0(0); /* cc1 == field 0 */
+         *(out++) = *(cdt2++);
+         *(out++) = *(cdt2++);
+         cdt2_size -= 2;
     }
 
     p_newblock->i_pts = p_block->i_dts;
-    p_newblock->i_buffer = i_copied;
     p_newblock->i_flags = BLOCK_FLAG_TYPE_P;
+out:
     block_Release( p_block );
-
     return p_newblock;
 }
 
@@ -1011,7 +1027,11 @@ static int Open( vlc_object_t * p_this )
             {
                 mp4_track_t *reftk = MP4_GetTrackByTrackID(p_demux, refdata->i_track_ID[j]);
                 if(reftk)
-                    reftk->as_reftype = p_refbox->i_type;
+                {
+                    msg_Dbg( p_demux, "track 0x%x refs track 0x%x for %4.4s", i,
+                             refdata->i_track_ID[j], (const char *) &p_refbox->i_type );
+                    reftk->i_use_flags |= MP4_reftypeToFlag( p_refbox->i_type );
+                }
             }
         }
     }
@@ -1026,7 +1046,7 @@ static int Open( vlc_object_t * p_this )
         MP4_Box_t *p_trak = MP4_BoxGet( p_sys->p_root, "/moov/trak[%u]", i );
         MP4_TrackSetup( p_demux, &p_sys->track[i], p_trak, true, !b_enabled_es );
 
-        if( p_sys->track[i].b_ok && !p_sys->track[i].as_reftype )
+        if( p_sys->track[i].b_ok && ! MP4_isMetadata(&p_sys->track[i]) )
         {
             const char *psz_cat;
             switch( p_sys->track[i].fmt.i_cat )
@@ -1052,7 +1072,7 @@ static int Open( vlc_object_t * p_this )
                      p_sys->track[i].fmt.psz_language ?
                      p_sys->track[i].fmt.psz_language : "undef" );
         }
-        else if( p_sys->track[i].b_ok && p_sys->track[i].as_reftype == ATOM_chap )
+        else if( p_sys->track[i].b_ok && (p_sys->track[i].i_use_flags & USEAS_CHAPTERS) )
         {
             msg_Dbg( p_demux, "using track[Id 0x%x] for chapter language %s",
                      p_sys->track[i].i_track_ID,
@@ -1061,8 +1081,8 @@ static int Open( vlc_object_t * p_this )
         }
         else
         {
-            msg_Dbg( p_demux, "ignoring track[Id 0x%x]",
-                     p_sys->track[i].i_track_ID );
+            msg_Dbg( p_demux, "ignoring track[Id 0x%x] %d refs %x",
+                     p_sys->track[i].i_track_ID, p_sys->track[i].b_ok, p_sys->track[i].i_use_flags );
         }
     }
 
@@ -1319,7 +1339,7 @@ static int DemuxTrack( demux_t *p_demux, mp4_track_t *tk, uint64_t i_readpos,
     if( !tk->b_ok || tk->i_sample >= tk->i_sample_count )
         return VLC_DEMUXER_EOS;
 
-    if( tk->as_reftype == ATOM_chap )
+    if( tk->i_use_flags & USEAS_CHAPTERS )
         return VLC_DEMUXER_SUCCESS;
 
     uint32_t i_run_seq = MP4_TrackGetRunSeq( tk );
@@ -2409,7 +2429,7 @@ static void LoadChapter( demux_t  *p_demux )
         for( unsigned i = 0; i < p_sys->i_tracks; i++ )
         {
             mp4_track_t *tk = &p_sys->track[i];
-            if(tk->b_ok && tk->as_reftype == ATOM_chap &&
+            if(tk->b_ok && (tk->i_use_flags & USEAS_CHAPTERS) &&
                tk->fmt.i_cat == SPU_ES && tk->fmt.i_codec == VLC_CODEC_TX3G)
             {
                 LoadChapterApple( p_demux, tk );
@@ -3546,7 +3566,7 @@ static void MP4_TrackSetup( demux_t *p_demux, mp4_track_t *p_track,
 
     /* Disable chapter only track */
     if( p_track->fmt.i_cat == UNKNOWN_ES &&
-        p_track->as_reftype == ATOM_chap )
+       (p_track->i_use_flags & USEAS_CHAPTERS) )
         p_track->b_enable = false;
 
     const MP4_Box_t *p_tsel;
@@ -3735,6 +3755,10 @@ static inline uint32_t MP4_GetFixedSampleSize( const mp4_track_t *p_track,
         case ATOM_twos:
         case ATOM_sowt:
         case ATOM_raw:
+        case VLC_CODEC_U8:
+        case VLC_CODEC_S8:
+        case VLC_CODEC_S16L:
+        case VLC_CODEC_S16B:
         case VLC_CODEC_S24L:
         case VLC_CODEC_S24B:
         case VLC_CODEC_S32L:
@@ -4548,6 +4572,10 @@ static int DemuxMoof( demux_t *p_demux )
     if( p_sys->i_pcr == VLC_TICK_INVALID )
         es_out_SetPCR( p_demux->out, VLC_TICK_0 + i_nztime );
 
+    /* Set per track read state */
+    for( unsigned i = 0; i < p_sys->i_tracks; i++ )
+        p_sys->track[i].context.i_temp = VLC_DEMUXER_SUCCESS;
+
     /* demux up to increment amount of data on every track, or just set pcr if empty data */
     for( ;; )
     {
@@ -4561,7 +4589,8 @@ static int DemuxMoof( demux_t *p_demux )
 
             if( !tk_tmp->b_ok || MP4_isMetadata( tk_tmp ) ||
                (!tk_tmp->b_selected && !p_sys->b_seekable) ||
-                tk_tmp->context.runs.i_current >= tk_tmp->context.runs.i_count )
+                tk_tmp->context.runs.i_current >= tk_tmp->context.runs.i_count ||
+                tk_tmp->context.i_temp != VLC_DEMUXER_SUCCESS )
                 continue;
 
             /* At least still have data to demux on this or next turns */
@@ -4600,6 +4629,7 @@ static int DemuxMoof( demux_t *p_demux )
 
             int i_ret = FragDemuxTrack( p_demux, tk, i_max_preload );
 
+            tk->context.i_temp = i_ret;
             if( i_ret == VLC_DEMUXER_SUCCESS )
                 i_status = VLC_DEMUXER_SUCCESS;
             else if( i_ret == VLC_DEMUXER_FATAL )

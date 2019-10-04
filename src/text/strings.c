@@ -6,7 +6,7 @@
  *
  * Authors: Antoine Cellerier <dionoea at videolan dot org>
  *          Daniel Stranger <vlc at schmaller dot de>
- *          Rémi Denis-Courmont <rem # videolan org>
+ *          Rémi Denis-Courmont
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published by
@@ -53,7 +53,6 @@
 #include <vlc_player.h>
 #include <libvlc.h>
 #include <errno.h>
-#include "../input/input_internal.h"
 
 static const struct xml_entity_s
 {

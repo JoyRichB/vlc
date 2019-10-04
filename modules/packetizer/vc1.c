@@ -41,6 +41,7 @@
 #include "hxxx_nal.h"
 #include "hxxx_ep3b.h"
 #include "startcode_helper.h"
+#include "iso_color_tables.h"
 
 /*****************************************************************************
  * Module descriptor
@@ -159,7 +160,8 @@ static int Open( vlc_object_t *p_this )
     packetizer_Init( &p_sys->packetizer,
                      p_vc1_startcode, sizeof(p_vc1_startcode), startcode_FindAnnexB,
                      NULL, 0, 4,
-                     PacketizeReset, PacketizeParse, PacketizeValidate, p_dec );
+                     PacketizeReset, PacketizeParse, PacketizeValidate, NULL,
+                     p_dec );
 
     p_sys->b_sequence_header = false;
     p_sys->sh.p_sh = NULL;
@@ -582,33 +584,9 @@ static block_t *ParseIDU( decoder_t *p_dec, bool *pb_ts_used, block_t *p_frag )
             }
             if( bs_read1( &s ) ) /* Color Format */
             {
-                switch( bs_read( &s, 8 ) ) /* Color Primaries */
-                {
-                    case 1:  p_es->video.primaries = COLOR_PRIMARIES_BT709; break;
-                    case 4:  p_es->video.primaries = COLOR_PRIMARIES_BT470_M; break;
-                    case 5:  p_es->video.primaries = COLOR_PRIMARIES_BT470_BG; break;
-                    case 6:  p_es->video.primaries = COLOR_PRIMARIES_SMTPE_RP145; break;
-                    default: p_es->video.primaries = COLOR_PRIMARIES_UNDEF; break;
-                }
-
-                switch( bs_read( &s, 8 ) ) /* Transfert Chars */
-                {
-                    case 1:  p_es->video.transfer = TRANSFER_FUNC_BT709; break;
-                    case 4:  p_es->video.transfer = TRANSFER_FUNC_BT470_M; break;
-                    case 5:  p_es->video.transfer = TRANSFER_FUNC_BT470_BG; break;
-                    case 6:  p_es->video.transfer = TRANSFER_FUNC_SMPTE_170; break;
-                    case 7:  p_es->video.transfer = TRANSFER_FUNC_SMPTE_240; break;
-                    case 8:  p_es->video.transfer = TRANSFER_FUNC_LINEAR; break;
-                    default: p_es->video.transfer = TRANSFER_FUNC_UNDEF; break;
-                }
-
-                switch( bs_read( &s, 8 ) ) /* Matrix Coef */
-                {
-                    case 1:  p_es->video.space = COLOR_SPACE_BT709; break;
-                    case 6:  p_es->video.space = COLOR_SPACE_BT601; break;
-                    case 7:  p_es->video.space = COLOR_SPACE_SMPTE_240; break;
-                    default: p_es->video.space = COLOR_SPACE_UNDEF; break;
-                }
+                p_es->video.primaries = iso_23001_8_cp_to_vlc_primaries( bs_read( &s, 8 ) );
+                p_es->video.transfer = iso_23001_8_tc_to_vlc_xfer( bs_read( &s, 8 ) );
+                p_es->video.space = iso_23001_8_mc_to_vlc_coeffs( bs_read( &s, 8 ) );
             }
         }
         else

@@ -28,7 +28,9 @@ import "qrc:///playlist/" as PL
 import "qrc:///menus/" as Menus
 
 Utils.NavigableFocusScope {
-    id: root
+    id: rootPlayer
+
+    property alias playlistWidget: playlistpopup
 
     //center image
     Rectangle {
@@ -37,6 +39,23 @@ Utils.NavigableFocusScope {
         color: VLCStyle.colors.bg
         anchors.fill: parent
 
+        FastBlur {
+            //destination aspect ration
+            readonly property real dar: parent.width / parent.height
+
+            anchors.centerIn: parent
+            width: (cover.sar < dar) ? parent.width :  parent.height * cover.sar
+            height: (cover.sar < dar) ? parent.width / cover.sar :  parent.height
+            source: cover
+            radius: 64
+
+            //darken background
+            Rectangle {
+                color: "#80000000"
+                anchors.fill: parent
+            }
+        }
+
         Image {
             id: cover
             source: (mainPlaylistController.currentItem.artwork && mainPlaylistController.currentItem.artwork.toString())
@@ -44,7 +63,10 @@ Utils.NavigableFocusScope {
                     : VLCStyle.noArtCover
             fillMode: Image.PreserveAspectFit
 
-            width: parent.width / 2
+            //source aspect ratio
+            property real sar: cover.sourceSize.width / cover.sourceSize.height
+
+            width: (parent.height * sar) / 2
             height: parent.height / 2
             anchors {
                 horizontalCenter:  parent.horizontalCenter
@@ -74,7 +96,7 @@ Utils.NavigableFocusScope {
             text: mainPlaylistController.currentItem.title
             font.pixelSize: VLCStyle.fontSize_xxlarge
             font.bold: true
-            color: VLCStyle.colors.text
+            color: VLCStyle.colors.playerFg
         }
 
         Text {
@@ -87,7 +109,7 @@ Utils.NavigableFocusScope {
 
             text: mainPlaylistController.currentItem.artist
             font.pixelSize: VLCStyle.fontSize_xlarge
-            color: VLCStyle.colors.text
+            color: VLCStyle.colors.playerFg
         }
     }
 
@@ -116,31 +138,65 @@ Utils.NavigableFocusScope {
         }
     }
 
-    Utils.Drawer {
+    Utils.DrawerExt{
+        id: topcontrolView
+        anchors{
+            left: parent.left
+            right: parent.right
+            top: parent.top
+        }
+        edge: Utils.DrawerExt.Edges.Top
+        property var noAutoHide: topcontrolView.contentItem.noAutoHide
+
+        state: "visible"
+
+        component: TopBar{
+            focus: true
+            width: topcontrolView.width
+            noAutoHide: noAutoHideInt ||  playlistpopup.state === "visible"
+            onNoAutoHideChanged: {
+                if (!noAutoHide)
+                    toolbarAutoHide.restart()
+            }
+
+            navigationParent: rootPlayer
+            navigationDown: function () { controlBarView.forceActiveFocus() }
+
+            Keys.onPressed: {
+                if (event.accepted)
+                    return
+                if (event.key === Qt.Key_Menu) {
+                    toolbarAutoHide.toggleForceVisible()
+                } else {
+                    rootWindow.sendHotkey(event.key);
+                }
+            }
+        }
+    }
+
+    Utils.DrawerExt {
         id: playlistpopup
         anchors {
-            top: parent.top
+            top: topcontrolView.bottom
             right: parent.right
             bottom: controlBarView.top
         }
+
+        property var previousFocus: undefined
         focus: false
-        expandHorizontally: true
+        edge: Utils.DrawerExt.Edges.Right
         state: (rootWindow.playlistDocked && rootWindow.playlistVisible) ? "visible" : "hidden"
-        onVisibleChanged: {
-            if (playlistpopup.visible)
-                playlistpopup.forceActiveFocus()
-        }
         component: Rectangle {
             color: VLCStyle.colors.setColorAlpha(VLCStyle.colors.banner, 0.8)
-            width: root.width/4
+            width: rootPlayer.width/4
             height: playlistpopup.height
 
             PL.PlaylistListView {
                 id: playlistView
                 focus: true
                 anchors.fill: parent
-                onActionLeft: playlistpopup.closeAndFocus(controlBarView)
-                onActionCancel: playlistpopup.closeAndFocus(controlBarView)
+                onActionLeft: playlistpopup.closeAndFocus(playlistpopup.previousFocus)
+                onActionCancel: playlistpopup.closeAndFocus(playlistpopup.previousFocus)
             }
         }
         onStateChanged: {
@@ -148,17 +204,22 @@ Utils.NavigableFocusScope {
                 toolbarAutoHide.restart()
         }
 
+        function gainFocus(previous) {
+            console.log("gain Focus")
+            playlistpopup.previousFocus = previous
+            playlistpopup.forceActiveFocus()
+        }
+
+
         function closeAndFocus(item){
+            rootWindow.playlistVisible = false
             if (!item)
                 return
-
-            rootWindow.playlistVisible = false
             item.forceActiveFocus()
         }
     }
 
-
-    Utils.Drawer {
+    Utils.DrawerExt {
         id: controlBarView
         focus: true
         anchors {
@@ -169,15 +230,18 @@ Utils.NavigableFocusScope {
         property var  noAutoHide: controlBarView.contentItem.noAutoHide
 
         state: "visible"
-        expandHorizontally: false
+        edge: Utils.DrawerExt.Edges.Bottom
 
         component: Rectangle {
             id: controllerBarId
-            color: VLCStyle.colors.setColorAlpha(VLCStyle.colors.banner, 0.8)
+            gradient: Gradient {
+                GradientStop { position: 1.0; color: VLCStyle.colors.playerBg }
+                GradientStop { position: 0.0; color: "transparent" }
+            }
+
             width: controlBarView.width
             height: 90 * VLCStyle.scale
             property alias noAutoHide: controllerId.noAutoHide
-
 
             MouseArea {
                 id: controllerMouseArea
@@ -195,27 +259,17 @@ Utils.NavigableFocusScope {
                             toolbarAutoHide.restart()
                     }
 
-                    onActionUp: root.actionUp(index)
-                    onActionDown: root.actionDown(index)
-                    onActionLeft: root.actionLeft(index)
-                    onActionRight: root.actionRight(index)
-                    onActionCancel: root.actionCancel(index)
+                    navigationParent: rootPlayer
+                    navigationUp: function() { topcontrolView.forceActiveFocus() }
 
                     //unhandled keys are forwarded as hotkeys
                     Keys.onPressed: {
+                        if (event.accepted)
+                            return
                         if (event.key === Qt.Key_Menu)
                             toolbarAutoHide.toggleForceVisible()
                         else
                             rootWindow.sendHotkey(event.key);
-                    }
-
-                    //filter global events to keep toolbar
-                    //visible when user navigates within the control bar
-                    EventFilter {
-                        id: filter
-                        source: rootQMLView
-                        filterEnabled: controlBarView.state === "visible"
-                        Keys.onPressed: toolbarAutoHide.setVisible(5000)
                     }
                 }
             }
@@ -228,36 +282,51 @@ Utils.NavigableFocusScope {
         repeat: false
         interval: 3000
         onTriggered: {
-            _setVisible(false)
+            _setVisibleControlBar(false)
         }
 
-        function _setVisible(visible) {
+        function _setVisibleControlBar(visible) {
             if (visible)
             {
                 controlBarView.state = "visible"
-                controlBarView.forceActiveFocus()
+                topcontrolView.state = "visible"
+                if (!controlBarView.focus && !topcontrolView.focus)
+                    controlBarView.forceActiveFocus()
+
                 videoSurface.cursorShape = Qt.ArrowCursor
             }
             else
             {
-                if (controlBarView.noAutoHide)
+                if (controlBarView.noAutoHide || topcontrolView.noAutoHide)
                     return;
                 controlBarView.state = "hidden"
+                topcontrolView.state = "hidden"
                 videoSurface.forceActiveFocus()
                 videoSurface.cursorShape = Qt.BlankCursor
             }
         }
 
         function setVisible(duration) {
-            _setVisible(true)
+            _setVisibleControlBar(true)
             toolbarAutoHide.interval = duration
             toolbarAutoHide.restart()
         }
 
         function toggleForceVisible() {
-            _setVisible(controlBarView.state !== "visible")
+            _setVisibleControlBar(controlBarView.state !== "visible")
             toolbarAutoHide.stop()
         }
+
+    }
+
+    //filter global events to keep toolbar
+    //visible when user navigates within the control bar
+    EventFilter {
+        id: filter
+        source: rootQMLView
+        filterEnabled: controlBarView.state === "visible"
+                       && (controlBarView.focus || topcontrolView.focus)
+        Keys.onPressed: toolbarAutoHide.setVisible(5000)
     }
 
     Connections {

@@ -31,16 +31,19 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface VLCLibraryAlbumTableCellView : NSTableCellView
 
++ (CGFloat)defaultHeight;
++ (CGFloat)heightForAlbum:(VLCMediaLibraryAlbum *)album;
+
 @property (readwrite, assign) IBOutlet VLCTrackingView *trackingView;
 @property (readwrite, assign) IBOutlet VLCImageView *representedImageView;
 @property (readwrite, assign) IBOutlet NSTextField *albumNameTextField;
 @property (readwrite, assign) IBOutlet NSTextField *summaryTextField;
 @property (readwrite, assign) IBOutlet NSTextField *yearTextField;
-@property (readwrite, assign) IBOutlet NSTableView *tracksTableView;
 @property (readwrite, assign) IBOutlet NSButton *playInstantlyButton;
-- (IBAction)playInstantly:(id)sender;
 
 @property (readwrite, assign, nonatomic) VLCMediaLibraryAlbum *representedAlbum;
+
+- (IBAction)playInstantly:(id)sender;
 
 @end
 

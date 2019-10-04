@@ -45,6 +45,9 @@ Utils.NavigableFocusScope {
     property alias subTabModel: model_music_id.model
     signal toogleMenu()
 
+
+    property var playlistWidget: undefined
+
     // Triggered when the toogleView button is selected
     function toggleView () {
         medialib.gridView = !medialib.gridView
@@ -171,7 +174,6 @@ Utils.NavigableFocusScope {
                                     anchors.verticalCenter: parent.verticalCenter
                                     color: VLCStyle.colors.buttonText
 
-                                    renderType: Text.NativeRendering
                                     font.pixelSize: VLCStyle.icon_topbar
                                     font.family: VLCIcons.fontFamily
                                     horizontalAlignment: Text.AlignHCenter
@@ -225,10 +227,19 @@ Utils.NavigableFocusScope {
                     size: VLCStyle.icon_normal
                     Layout.minimumWidth: width
                     text: VLCIcons.topbar_next
-                    KeyNavigation.right: bar
+                    KeyNavigation.right: list_grid_btn
                     KeyNavigation.up: buttonView
                     onClicked: history.next(History.Go)
                     enabled: !history.nextEmpty
+                }
+
+                Utils.IconToolButton {
+                    id: list_grid_btn
+                    size: VLCStyle.icon_normal
+                    text: medialib.gridView ? VLCIcons.list : VLCIcons.grid
+                    onClicked: medialib.gridView = !medialib.gridView
+                    KeyNavigation.right: bar
+                    KeyNavigation.up: buttonView
                 }
 
                 TabBar {
@@ -348,7 +359,12 @@ Utils.NavigableFocusScope {
                             size: VLCStyle.icon_normal
                             text: VLCIcons.playlist
 
-                            onClicked: rootWindow.playlistVisible = !rootWindow.playlistVisible
+                            onClicked: {
+                                rootWindow.playlistVisible = !rootWindow.playlistVisible
+                                if (playlistWidget && rootWindow.playlistVisible && rootWindow.playlistDocked)
+                                    playlistWidget.gainFocus(playlist_btn)
+
+                            }
 
                             KeyNavigation.right: menu_selector
                             KeyNavigation.up: buttonView
@@ -365,51 +381,51 @@ Utils.NavigableFocusScope {
 
                             onClicked: mainMenu.openBelow(this)
 
-                        Menus.MainDropdownMenu {
-                            id: mainMenu
-                            onClosed: {
-                                if (mainMenu.activeFocus)
-                                    menu_selector.forceActiveFocus()
+                            Menus.MainDropdownMenu {
+                                id: mainMenu
+                                onClosed: {
+                                    if (mainMenu.activeFocus)
+                                        menu_selector.forceActiveFocus()
+                                }
                             }
                         }
                     }
-                }
 
-                // Content model states
-                states: [
-                    State {
-                        name: "contentModel"
-                        when: root.contentModel !== undefined
-                        PropertyChanges {
-                            target: searchBox
-                            visible: true
+                    // Content model states
+                    states: [
+                        State {
+                            name: "contentModel"
+                            when: root.contentModel !== undefined
+                            PropertyChanges {
+                                target: searchBox
+                                visible: true
+                            }
+                            PropertyChanges {
+                                target: sortControl
+                                visible: true
+                            }
+                        },
+                        State {
+                            name: "noContentModel"
+                            when: root.contentModel === undefined
+                            PropertyChanges {
+                                target: searchBox
+                                visible: false
+                            }
+                            PropertyChanges {
+                                target: sortControl
+                                visible: false
+                            }
                         }
-                        PropertyChanges {
-                            target: sortControl
-                            visible: true
-                        }
-                    },
-                    State {
-                        name: "noContentModel"
-                        when: root.contentModel === undefined
-                        PropertyChanges {
-                            target: searchBox
-                            visible: false
-                        }
-                        PropertyChanges {
-                            target: sortControl
-                            visible: false
-                        }
-                    }
-                ]
+                    ]
+                }
             }
         }
-    }
 
-    Keys.priority: Keys.AfterItem
-    Keys.onPressed: {
-        if (!event.accepted)
-            defaultKeyAction(event, 0)
+        Keys.priority: Keys.AfterItem
+        Keys.onPressed: {
+            if (!event.accepted)
+                defaultKeyAction(event, 0)
+        }
     }
-}
 }

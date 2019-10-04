@@ -364,7 +364,6 @@ create_toolbar_item(NSString *itemIdent, NSString *name, NSString *desc, NSStrin
     [[[_hotkeys_listbox tableColumnWithIdentifier: @"action"] headerCell] setStringValue: _NS("Action")];
     [[[_hotkeys_listbox tableColumnWithIdentifier: @"shortcut"] headerCell] setStringValue: _NS("Shortcut")];
     [_hotkeys_mediakeysCheckbox setTitle: _NS("Control playback with media keys")];
-    [_hotkeys_dimKeyboardCheckbox setTitle: _NS("Dim keyboard backlight during fullscreen playback")];
 
     /* input */
     [_input_recordBox setTitle: _NS("Record directory or filename")];
@@ -806,7 +805,8 @@ static inline const char * __config_GetLabel(vlc_object_t *p_this, const char *p
 
     [self setupField:_osd_fontTextField forOption: "freetype-font"];
     [self setupButton:_osd_font_colorPopup forIntList: "freetype-color"];
-    [self setupButton:_osd_font_sizePopup forIntList: "freetype-rel-fontsize"];
+    _osd_font_sizeSlider.intValue = (int)config_GetInt("sub-text-scale");
+    [_osd_font_sizeTextField setStringValue: [NSString stringWithFormat:@"%.2fx", _osd_font_sizeSlider.intValue / 100.]];
     i = config_GetInt("freetype-opacity") * 100.0 / 255.0 + 0.5;
     [_osd_opacityTextField setIntValue: i];
     [_osd_opacitySlider setIntValue: i];
@@ -852,7 +852,6 @@ static inline const char * __config_GetLabel(vlc_object_t *p_this, const char *p
 
     [_hotkeys_listbox reloadData];
     [self setupButton:_hotkeys_mediakeysCheckbox forBoolValue: "macosx-mediakeys"];
-    [self setupButton:_hotkeys_dimKeyboardCheckbox forBoolValue: "macosx-dim-keyboard"];
 }
 
 #pragma mark -
@@ -1083,7 +1082,7 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
 
         config_PutPsz("freetype-font", [[_osd_fontTextField stringValue] UTF8String]);
         SaveIntList(_osd_font_colorPopup, "freetype-color");
-        SaveIntList(_osd_font_sizePopup, "freetype-rel-fontsize");
+        config_PutInt("sub-text-scale", _osd_font_sizeSlider.intValue);
         config_PutInt("freetype-opacity", [_osd_opacityTextField intValue] * 255.0 / 100.0 + 0.5);
         config_PutInt("freetype-bold", [_osd_forceboldCheckbox state]);
         SaveIntList(_osd_outline_colorPopup, "freetype-outline-color");
@@ -1101,7 +1100,6 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
         _hotkeyChanged = NO;
 
         config_PutInt("macosx-mediakeys", [_hotkeys_mediakeysCheckbox state]);
-        config_PutInt("macosx-dim-keyboard", [_hotkeys_dimKeyboardCheckbox state]);
     }
 
     fixIntfSettings();
@@ -1229,11 +1227,13 @@ static inline void save_string_list(intf_thread_t * p_intf, id object, const cha
 
 - (IBAction)osdSettingChanged:(id)sender
 {
-    if (sender == _osd_opacityTextField)
+    if (sender == _osd_opacityTextField) {
         [_osd_opacitySlider setIntValue: [_osd_opacityTextField intValue]];
-
-    if (sender == _osd_opacitySlider)
+    } else if (sender == _osd_opacitySlider) {
         [_osd_opacityTextField setIntValue: [_osd_opacitySlider intValue]];
+    } else if (sender == _osd_font_sizeSlider) {
+        [_osd_font_sizeTextField setStringValue: [NSString stringWithFormat:@"%.2fx", _osd_font_sizeSlider.intValue / 100.]];
+    }
 
     _osdSettingChanged = YES;
 }

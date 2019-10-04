@@ -178,7 +178,7 @@
         <file alias="MultiCoverPreview.qml">qml/utils/MultiCoverPreview.qml</file>
         <file alias="GridItem.qml">qml/utils/GridItem.qml</file>
         <file alias="ListItem.qml">qml/utils/ListItem.qml</file>
-        <file alias="Drawer.qml">qml/utils/Drawer.qml</file>
+        <file alias="DrawerExt.qml">qml/utils/DrawerExt.qml</file>
         <file alias="SelectableDelegateModel.qml">qml/utils/SelectableDelegateModel.qml</file>
         <file alias="KeyNavigableGridView.qml">qml/utils/KeyNavigableGridView.qml</file>
         <file alias="KeyNavigableListView.qml">qml/utils/KeyNavigableListView.qml</file>
@@ -198,11 +198,18 @@
         <file alias="ScanProgressBar.qml">qml/utils/ScanProgressBar.qml</file>
         <file alias="SearchBox.qml">qml/utils/SearchBox.qml</file>
         <file alias="SortControl.qml">qml/utils/SortControl.qml</file>
+        <file alias="RoundButton.qml">qml/utils/RoundButton.qml</file>
+        <file alias="LabelSeparator.qml">qml/utils/LabelSeparator.qml</file>
+        <file alias="ContextButton.qml">qml/utils/ContextButton.qml</file>
+        <file alias="RoundImage.qml">qml/utils/RoundImage.qml</file>
+        <file alias="VideoQualityLabel.qml">qml/utils/VideoQualityLabel.qml</file>
+        <file alias="VideoProgressBar.qml">qml/utils/VideoProgressBar.qml</file>
     </qresource>
     <qresource prefix="/mediacenter">
         <file alias="MCMusicDisplay.qml">qml/mediacenter/MCMusicDisplay.qml</file>
         <file alias="MCVideoDisplay.qml">qml/mediacenter/MCVideoDisplay.qml</file>
         <file alias="MCNetworkDisplay.qml">qml/mediacenter/MCNetworkDisplay.qml</file>
+        <file alias="MCNetworksSectionSelectableDM.qml">qml/mediacenter/MCNetworksSectionSelectableDM.qml</file>
         <file alias="MusicAlbumsDisplay.qml">qml/mediacenter/MusicAlbumsDisplay.qml</file>
         <file alias="MusicAlbumsGridExpandDelegate.qml">qml/mediacenter/MusicAlbumsGridExpandDelegate.qml</file>
         <file alias="MusicArtistsDisplay.qml">qml/mediacenter/MusicArtistsDisplay.qml</file>
@@ -214,7 +221,12 @@
         <file alias="NetworkDriveDisplay.qml">qml/mediacenter/NetworkDriveDisplay.qml</file>
         <file alias="NetworkFileDisplay.qml">qml/mediacenter/NetworkFileDisplay.qml</file>
         <file alias="NetworkListItem.qml">qml/mediacenter/NetworkListItem.qml</file>
-        <file alias="MiniPlayer.qml">qml/mediacenter/MiniPlayer.qml</file>
+        <file alias="VideoExpandableGrid.qml">qml/mediacenter/VideoExpandableGrid.qml</file>
+        <file alias="MCVideoListDisplay.qml">qml/mediacenter/MCVideoListDisplay.qml</file>
+        <file alias="NetworkFileDisplayGrid.qml">qml/mediacenter/NetworkFileDisplayGrid.qml</file>
+        <file alias="NetworkDriveDisplayGrid.qml">qml/mediacenter/NetworkDriveDisplayGrid.qml</file>
+        <file alias="VideoGridItem.qml">qml/mediacenter/VideoGridItem.qml</file>
+        <file alias="AudioGridItem.qml">qml/mediacenter/AudioGridItem.qml</file>
     </qresource>
     <qresource prefix="/style">
         <file alias="qmldir">qml/style/qmldir</file>
@@ -253,6 +265,9 @@
         <file alias="ControlButtons.qml">qml/player/ControlButtons.qml</file>
         <file alias="VolumeWidget.qml">qml/player/VolumeWidget.qml</file>
         <file alias="TeletextWidget.qml">qml/player/TeletextWidget.qml</file>
+        <file alias="MiniPlayer.qml">qml/player/MiniPlayer.qml</file>
+        <file alias="TopBar.qml">qml/player/TopBar.qml</file>
+        <file alias="PlayerButtonsLayout.qml">qml/player/PlayerButtonsLayout.qml</file>
     </qresource>
     <qresource prefix="/about">
         <file alias="About.qml">qml/about/About.qml</file>
@@ -260,5 +275,11 @@
     <qresource prefix="/dialogs">
         <file alias="Dialogs.qml">qml/dialogs/Dialogs.qml</file>
         <file alias="ModalDialog.qml">qml/dialogs/ModalDialog.qml</file>
+        <file alias="EditorDummyButton.qml">qml/dialogs/EditorDummyButton.qml</file>
+        <file alias="EditorDNDDelegate.qml">qml/dialogs/EditorDNDDelegate.qml</file>
+        <file alias="ToolbarEditorButtonList.qml">qml/dialogs/ToolbarEditorButtonList.qml</file>
+        <file alias="ToolbarEditor.qml">qml/dialogs/ToolbarEditor.qml</file>
+        <file alias="EditorDNDView.qml">qml/dialogs/EditorDNDView.qml</file>
+        <file alias="EditorTabButton.qml">qml/dialogs/EditorTabButton.qml</file>
     </qresource>
 </RCC>

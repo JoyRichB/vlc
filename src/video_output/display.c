@@ -87,13 +87,6 @@ static int vout_display_start(void *func, bool forced, va_list ap)
     return ret;
 }
 
-static void vout_display_stop(void *func, va_list ap)
-{
-    vout_display_close_cb deactivate = func;
-
-    deactivate(va_arg(ap, vout_display_t *));
-}
-
 /* */
 void vout_display_GetDefaultDisplaySize(unsigned *width, unsigned *height,
                                         const video_format_t *source,
@@ -774,6 +767,7 @@ vout_display_t *vout_display_New(vlc_object_t *parent,
     vd->prepare = NULL;
     vd->display = NULL;
     vd->control = NULL;
+    vd->close = NULL;
     vd->sys = NULL;
     if (owner)
         vd->owner = *owner;
@@ -782,11 +776,9 @@ vout_display_t *vout_display_New(vlc_object_t *parent,
     vlc_video_context *video_context = osys->video_context.device ?
         &osys->video_context : NULL;
 
-    vd->module = vlc_module_load(vd, "vout display", module,
-                                 module && *module != '\0',
-                                 vout_display_start, vd, &osys->cfg,
-                                 &vd->fmt, video_context);
-    if (vd->module == NULL)
+    if (vlc_module_load(vd, "vout display", module, module && *module != '\0',
+                        vout_display_start, vd, &osys->cfg, &vd->fmt,
+                        video_context) == NULL)
         goto error;
 
 #if defined(__OS2__)
@@ -802,10 +794,9 @@ vout_display_t *vout_display_New(vlc_object_t *parent,
 #endif
 
     if (VoutDisplayCreateRender(vd)) {
-        if (vd->module != NULL) {
-            vlc_module_unload(vd->module, vout_display_stop, vd);
-            vlc_objres_clear(VLC_OBJECT(vd));
-        }
+        if (vd->close != NULL)
+            vd->close(vd);
+        vlc_objres_clear(VLC_OBJECT(vd));
         video_format_Clean(&vd->fmt);
         goto error;
     }
@@ -828,10 +819,9 @@ void vout_display_Delete(vout_display_t *vd)
     if (osys->pool != NULL)
         picture_pool_Release(osys->pool);
 
-    if (vd->module != NULL) {
-        vlc_module_unload(vd->module, vout_display_stop, vd);
-        vlc_objres_clear(VLC_OBJECT(vd));
-    }
+    if (vd->close != NULL)
+        vd->close(vd);
+    vlc_objres_clear(VLC_OBJECT(vd));
 
     if (osys->video_context.device)
         vlc_decoder_device_Release(osys->video_context.device);

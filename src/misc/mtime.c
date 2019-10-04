@@ -6,7 +6,7 @@
  * Copyright © 2006-2007 Rémi Denis-Courmont
  *
  * Authors: Vincent Seguin <seguin@via.ecp.fr>
- *          Rémi Denis-Courmont <rem$videolan,org>
+ *          Rémi Denis-Courmont
  *          Gisle Vanem
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -76,6 +76,7 @@ void date_Init( date_t *p_date, uint32_t i_divider_n, uint32_t i_divider_d )
 
 void date_Change( date_t *p_date, uint32_t i_divider_n, uint32_t i_divider_d )
 {
+    assert( p_date->i_divider_num != 0 );
     /* change time scale of remainder */
     p_date->i_remainder = p_date->i_remainder * i_divider_n / p_date->i_divider_num;
     p_date->i_divider_num = i_divider_n;

@@ -24,7 +24,7 @@
 #include <vlc_common.h>
 #include <vlc_playlist.h>
 #include <vlc_vector.h>
-#include "../input/player.h"
+#include "../player/player.h"
 #include "randomizer.h"
 
 typedef struct input_item_t input_item_t;
@@ -40,7 +40,7 @@ typedef struct input_item_t input_item_t;
 # define vlc_player_RemoveListener(a,b) free(b)
 # define vlc_player_SetCurrentMedia(a,b) (VLC_UNUSED(b), VLC_SUCCESS)
 # define vlc_player_InvalidateNextMedia(p) VLC_UNUSED(p)
-# define vlc_player_vout_OSDMessage(p, fmt...) VLC_UNUSED(p)
+# define vlc_player_osd_Message(p, fmt...) VLC_UNUSED(p)
 #endif /* TEST_PLAYLIST */
 
 typedef struct VLC_VECTOR(vlc_playlist_item_t *) playlist_item_vector_t;
@@ -63,15 +63,15 @@ struct vlc_playlist
     uint64_t idgen;
 };
 
+/* Also disable vlc_assert_locked in tests since the symbol is not exported */
+#if !defined(NDEBUG) && !defined(TEST_PLAYLIST)
 static inline void
 vlc_playlist_AssertLocked(vlc_playlist_t *playlist)
 {
-#ifdef TEST_PLAYLIST
-    /* disable vlc_assert_locked in tests since the symbol is not exported */
-    VLC_UNUSED(playlist);
-#else
     vlc_player_assert_locked(playlist->player);
-#endif
 }
+#else
+#define vlc_playlist_AssertLocked(x) ((void) (0))
+#endif
 
 #endif
